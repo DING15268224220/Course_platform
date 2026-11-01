@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17243b">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <title>课程项目协作与评审平台</title>
+  <link rel="stylesheet" href="/static/style.css?v=2.1.0">
+</head>
+<body>
+  <a class="skip-link" href="#content">跳到主要内容</a>
+  <section class="login-screen" id="login-screen" aria-labelledby="login-title">
+    <div class="login-card">
+      <div class="login-brand">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5.5 12 2l8 3.5v6c0 4.9-3.3 8.7-8 10.5-4.7-1.8-8-5.6-8-10.5v-6Z"/><path d="m8.5 11 2.2 2.2 4.8-5"/></svg></span>
+        <div><strong>高校课程项目协作与评审平台</strong><span>COURSE PROJECT REVIEW HUB</span></div>
+      </div>
+      <div class="login-copy"><span class="eyebrow">欢迎回来</span><h1 id="login-title">登录课程工作台</h1><p>请选择演示身份并输入密码，系统会根据角色加载对应的项目、团队和成绩信息。</p></div>
+      <form id="login-form" class="login-form">
+        <label for="login-user">演示账号</label>
+        <select id="login-user" required aria-describedby="login-hint"></select>
+        <label for="login-password">密码</label>
+        <input id="login-password" type="password" autocomplete="current-password" value="123456" required>
+        <p id="login-hint" class="field-help">演示账号统一密码：123456</p>
+        <button class="button login-button" id="login-submit" type="submit">进入工作台</button>
+        <p class="login-error" id="login-error" role="alert" hidden></p>
+      </form>
+    </div>
+    <div class="login-aside" aria-hidden="true"><span class="login-orbit one"></span><span class="login-orbit two"></span><div><strong>让课程项目过程可见</strong><span>从组队、迭代提交到互评与成绩发布，形成完整可追溯的教学闭环。</span></div></div>
+  </section>
+
+  <div class="app-shell" id="app-shell" hidden>
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M4 5.5 12 2l8 3.5v6c0 4.9-3.3 8.7-8 10.5-4.7-1.8-8-5.6-8-10.5v-6Z"/><path d="m8.5 11 2.2 2.2 4.8-5"/></svg>
+        </div>
+        <div class="brand-copy"><strong>课程协作平台</strong><span>PROJECT REVIEW HUB</span></div>
+        <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-label="收起侧边栏" title="收起侧边栏">
+          <svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
+      </div>
+      <div class="workspace-chip">
+        <span class="workspace-icon">SE</span>
+        <div><strong id="workspace-course">课程工作台</strong><span id="workspace-term">当前学期</span></div>
+      </div>
+      <nav id="nav" aria-label="功能导航"></nav>
+      <div class="sidebar-footer">
+        <div class="system-state"><span class="status-dot"></span><div><strong id="service-state">服务运行正常</strong><span>本地安全环境</span></div></div>
+        <span class="version">Desktop · v2.0</span>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div class="page-heading">
+          <div class="breadcrumbs"><span id="breadcrumb-course">课程项目</span><i>/</i><span id="breadcrumb-current">项目总览</span></div>
+          <h1 id="page-title">项目总览</h1>
+          <p id="page-description">掌握课程项目、团队协作与评审进展</p>
+        </div>
+        <div class="top-actions">
+          <button class="icon-button" id="refresh-btn" type="button" title="刷新数据" aria-label="刷新数据">
+            <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+          </button>
+          <label class="project-switcher" for="project-select"><span>当前项目</span><select id="project-select" aria-label="切换当前项目"></select></label>
+          <div class="top-divider"></div>
+          <div class="role-switcher">
+            <span class="user-avatar" id="user-avatar">张</span>
+            <span class="user-copy"><strong id="user-name">用户</strong><small id="user-role">角色</small></span>
+          </div>
+          <button class="icon-button" id="logout-btn" type="button" title="安全退出" aria-label="安全退出"><svg viewBox="0 0 24 24"><path d="M10 5H5v14h5M14 8l4 4-4 4M8 12h10"/></svg></button>
+        </div>
+      </header>
+
+      <section id="toast" class="toast" role="status" aria-live="polite" hidden></section>
+      <section id="content" class="content" tabindex="-1" aria-busy="true">
+        <div class="skeleton-grid" aria-label="正在加载">
+          <div class="skeleton skeleton-stat"></div><div class="skeleton skeleton-stat"></div><div class="skeleton skeleton-stat"></div><div class="skeleton skeleton-stat"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="modal" aria-labelledby="modal-title">
+    <form method="dialog" class="modal-card">
+      <div class="modal-head">
+        <div><p class="eyebrow">快速操作</p><h2 id="modal-title">操作</h2><p id="modal-description" class="subtle"></p></div>
+        <button class="icon-button modal-close" value="cancel" aria-label="关闭弹窗" title="关闭">
+          <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div id="modal-body"></div>
+    </form>
+  </dialog>
+  <script src="/static/app.js?v=2.1.0"></script>
+</body>
+</html>
+

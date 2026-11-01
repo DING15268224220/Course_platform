@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 运行时数据（数据库、上传文件、会话密钥）
+backend/data/
+backend/uploads/
+
+# 桌面版构建与依赖
+desktop/node_modules/
+desktop/.desktop-venv/
+desktop/dist-backend/
+desktop/build-backend/
+desktop/release/
+*.spec
+
+# 编辑器 / 工具
+.idea/
+.vscode/
+.codeartsdoer/
+.merkle-snapshot.json
