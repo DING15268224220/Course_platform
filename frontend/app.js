@@ -72,6 +72,15 @@ function toast(message, isError = false) {
   el.textContent = message;
   el.classList.toggle("error", isError);
   el.hidden = false;
+  
+  // 核心逻辑：如果弹窗开着，就把 Toast 移动到弹窗内部，突破 Top Layer 限制
+  const modal = document.querySelector("#modal");
+  if (modal && modal.open) {
+    modal.appendChild(el);
+  } else {
+    document.body.appendChild(el);
+  }
+  
   clearTimeout(window.toastTimer);
   window.toastTimer = setTimeout(() => { el.hidden = true; }, 2800);
 }
@@ -201,8 +210,19 @@ function overviewPage() {
   const activeSubmissions = state.data.submissions.filter((item) => item.status !== "withdrawn").length;
   const expectedSubmissions = Math.max(1, state.data.teams.length * p.iterations.length);
   const submissionProgress = pct(activeSubmissions, expectedSubmissions);
-  const reviewCount = grades.reduce((sum, item) => sum + Number(item.peer_count || 0), 0);
-  const expectedReviews = Math.max(1, state.data.teams.length * 3);
+  let reviewCount = 0;
+  let expectedReviews = 0;
+  
+  if (state.data.current_user.role === "student") {
+    // 学生端：显示自己完成了多少个互评任务
+    const targets = state.data.review_targets || [];
+    reviewCount = targets.filter(item => item.reviewed).length;
+    expectedReviews = Math.min(3, targets.length);
+  } else {
+    // 教师/助教端：显示全班总评数据
+    reviewCount = grades.reduce((sum, item) => sum + Number(item.peer_count || 0), 0);
+    expectedReviews = Math.max(1, memberTotal() * 3);
+  }
   const reviewProgress = pct(reviewCount, expectedReviews);
 
   return '<div class="stats">'
@@ -267,8 +287,9 @@ function identityCard() {
 function notificationCard() {
   const notices = state.data.notifications || [];
   const unread = notices.filter((item) => !item.is_read).length;
+  // 给每条通知加上 data-page 属性，并绑定跳转
   return '<section class="card"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("bell") + '</span><div><h2>通知中心</h2><p class="subtle">' + unread + ' 条未读消息</p></div></div>' + (unread ? '<button class="button ghost small" data-action="read-all" type="button">全部已读</button>' : '<span class="tag green">' + notices.length + '</span>') + '</div>'
-    + (notices.length ? '<div class="notice-list">' + notices.slice(0, 5).map((item) => '<article class="notice ' + (!item.is_read ? "unread" : "") + '" data-action="read-notice" data-id="' + item.id + '"><span class="notice-icon">' + icon("bell") + '</span><strong>' + esc(item.title) + '</strong><span>' + esc(item.content) + '</span><time>' + fmt(item.created_at).slice(5) + '</time></article>').join("") + "</div>" : emptyState("暂无通知", "关键节点的提醒会显示在这里。", "bell"))
+    + (notices.length ? '<div class="notice-list">' + notices.slice(0, 5).map((item) => '<article class="notice ' + (!item.is_read ? "unread" : "") + '" data-action="read-notice" data-id="' + item.id + '" data-page="' + item.target_page + '"><span class="notice-icon">' + icon("bell") + '</span><strong>' + esc(item.title) + '</strong><span>' + esc(item.content) + '</span><time>' + fmt(item.created_at).slice(5) + '</time></article>').join("") + "</div>" : emptyState("暂无通知", "关键节点的提醒会显示在这里。", "bell"))
     + "</section>";
 }
 
@@ -288,8 +309,26 @@ function scoreCell(value, type) {
 function projectsPage() {
   const user = state.data.current_user;
   const action = user.role === "teacher" ? '<button class="button" type="button" data-action="new-project">' + icon("plus") + "<span>发布新项目</span></button>" : "";
+  
   return '<section class="card"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("project") + '</span><div><h2>课程项目与迭代</h2><p class="subtle">清晰管理任务要求、阶段截止与评分权重</p></div></div><div class="card-actions">' + action + "</div></div>"
-    + state.data.projects.map((item) => '<div class="project-hero spaced ' + (item.id === state.data.active_project_id ? "selected-project" : "") + '"><div class="project-top"><div><div class="project-meta"><span class="tag green">' + (item.status === "published" ? "已发布" : "草稿") + '</span><span class="project-code">COURSE · ' + esc(item.course_name) + '</span></div><h2>' + esc(item.title) + '</h2><p class="project-description subtle">' + esc(item.description) + '</p></div><div class="card-actions"><div class="deadline-block"><span>组队截止 / 项目截止</span><strong>' + fmt(item.team_deadline).slice(5) + ' · ' + fmt(item.overall_deadline).slice(5) + '</strong></div>' + (item.id !== state.data.active_project_id ? '<button class="button secondary small" data-action="select-project" data-id="' + item.id + '" type="button">切换到此项目</button>' : '<span class="tag green">当前项目</span>') + '</div></div>' + weightPanel(item) + '<div class="phase-list">' + item.iterations.map((phase) => '<div class="phase-item"><i class="phase-marker"></i><div class="phase-copy"><strong>' + esc(phase.name) + '</strong><span>' + esc(phase.requirements) + '</span></div><time class="phase-date">' + fmt(phase.deadline) + '</time></div>').join("") + "</div></div>").join("")
+    + state.data.projects.map((item) => 
+      '<div class="project-hero spaced ' + (item.id === state.data.active_project_id ? "selected-project" : "") + '">' 
+        + '<div class="project-top">' 
+          + '<div>' 
+            + '<div class="project-meta"><span class="tag green">' + (item.status === "published" ? "已发布" : "草稿") + '</span><span class="project-code">COURSE · ' + esc(item.course_name) + '</span></div>'
+            + '<h2>' + esc(item.title) + '</h2>'
+            + '<p class="project-description subtle">' + esc(item.description) + '</p>'
+          + '</div>' 
+          + '<div class="card-actions" style="display: flex; align-items: center; gap: 12px;">' 
+            + '<div class="deadline-block"><span>组队截止 / 项目截止</span><strong>' + fmt(item.team_deadline).slice(5) + ' · ' + fmt(item.overall_deadline).slice(5) + '</strong></div>' 
+            + (user.role === "teacher" && !item.grades_published ? '<button class="button ghost small" data-action="edit-weights" data-id="' + item.id + '" type="button">' + icon("edit") + '<span>修改权重</span></button>' : '')
+            + (item.id !== state.data.active_project_id ? '<button class="button secondary small" data-action="select-project" data-id="' + item.id + '" type="button">切换到此项目</button>' : '<span class="tag green">当前项目</span>')
+          + '</div>' 
+        + '</div>' 
+        + '<div style="margin-top: 15px;">' + weightPanel(item) + '</div>' 
+        + '<div class="phase-list" style="margin-top: 20px;">' + item.iterations.map((phase) => '<div class="phase-item"><i class="phase-marker"></i><div class="phase-copy"><strong>' + esc(phase.name) + '</strong><span>' + esc(phase.requirements) + '</span></div><time class="phase-date">' + fmt(phase.deadline) + '</time></div>').join("") + "</div>"
+      + '</div>'
+    ).join("")
     + "</section>";
 }
 
@@ -338,7 +377,9 @@ function reviewsPage() {
   if (user.role !== "student") return emptyState("当前角色不参与同伴互评", "助教可以在评分页面查看团队得分。", "review");
   const targets = state.data.review_targets || [];
   const completed = targets.filter((item) => item.reviewed).length;
-  return '<section class="card"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("review") + '</span><div><h2>我的互评任务</h2><p class="subtle">已完成 ' + completed + "/" + Math.min(3, targets.length) + ' 项 · 不能评审本团队</p></div></div><span class="tag ' + (p.review_open ? "green" : "gray") + '">' + (p.review_open ? "互评开放" : "互评关闭") + '</span></div><div class="review-grid">' + targets.map((target) => '<article class="review-card ' + (target.reviewed ? "complete" : "") + '"><span class="tag ' + (target.reviewed ? "green" : "amber") + '">' + (target.reviewed ? "已完成" : "待评价") + '</span><h3>' + esc(target.name) + '</h3><p class="subtle">从完成度、创新性和文档质量进行综合评价。</p><div class="review-score"><strong>' + (target.current_average ?? "—") + '</strong><span>当前平均分</span></div><button class="button secondary small" type="button" data-action="review" data-id="' + target.id + '" data-name="' + esc(target.name) + '">' + icon("edit") + "<span>" + (target.reviewed ? "修改评价" : "开始评价") + "</span></button></article>").join("") + "</div></section>";
+  
+  // 卡片底部增加下载按钮和评价按钮的布局
+  return '<section class="card"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("review") + '</span><div><h2>我的互评任务</h2><p class="subtle">已完成 ' + completed + "/" + Math.min(3, targets.length) + ' 项 · 不能评审本团队</p></div></div><span class="tag ' + (p.review_open ? "green" : "gray") + '">' + (p.review_open ? "互评开放" : "互评关闭") + '</span></div><div class="review-grid">' + targets.map((target) => '<article class="review-card ' + (target.reviewed ? "complete" : "") + '"><span class="tag ' + (target.reviewed ? "green" : "amber") + '">' + (target.reviewed ? "已完成" : "待评价") + '</span><h3>' + esc(target.name) + '</h3><p class="subtle">从完成度、创新性和文档质量进行综合评价。</p><div class="review-score"><strong>' + (target.current_average ?? "—") + '</strong><span>我的评分</span></div><div class="card-actions" style="justify-content: center; margin-top: 15px;">' + (target.submission_id ? '<button class="button ghost small" type="button" data-action="download" data-id="' + target.submission_id + '" data-filename="' + esc(target.submission_filename || "submission.pdf") + '">' + icon("download") + ' <span>下载成果</span></button>' : '') + '<button class="button secondary small" type="button" data-action="review" data-id="' + target.id + '" data-name="' + esc(target.name) + '">' + icon("edit") + "<span>" + (target.reviewed ? "修改评价" : "开始评价") + "</span></button></div></article>").join("") + "</div></section>";
 }
 
 function gradesPage() {
@@ -408,7 +449,12 @@ async function runBusy(button, task) {
 function bindModalSubmit(task) {
   document.querySelector("#modal-submit").onclick = (event) => runBusy(event.currentTarget, async () => {
     try { await task(); }
-    catch (error) { toast(error.message, true); }
+    catch (error) { 
+      if (error.status) {
+        closeModal(); 
+      }
+      toast(error.message, true); 
+    }
   });
 }
 
@@ -452,6 +498,24 @@ function bindActions() {
             await api("/api/projects", { method: "POST", body: JSON.stringify(payload) });
             closeModal(); toast("项目发布成功"); await load({ quiet: true });
           });
+        } else if (action === "edit-weights") {
+          openModal("修改评分权重", "三项权重合计必须为 100%", formHtml(
+            '<div class="field"><label for="f-peer">互评权重 (%)</label><input id="f-peer" type="number" min="0" max="100" value="' + Math.round(p.peer_weight * 100) + '"><span class="field-error">0-100</span></div>'
+            + '<div class="field"><label for="f-process">过程分权重 (%)</label><input id="f-process" type="number" min="0" max="100" value="' + Math.round(p.process_weight * 100) + '"><span class="field-error">0-100</span></div>'
+            + '<div class="field"><label for="f-final">终评权重 (%)</label><input id="f-final" type="number" min="0" max="100" value="' + Math.round(p.final_weight * 100) + '"><span class="field-error">0-100</span></div>',
+            "保存权重"
+          ));
+          bindModalSubmit(async () => {
+            const peer = Number(value("f-peer"));
+            const process = Number(value("f-process"));
+            const final = Number(value("f-final"));
+            if (peer + process + final !== 100) throw new Error("三项评分权重必须合计 100%");
+            await api("/api/projects/" + button.dataset.id, { 
+              method: "PATCH", 
+              body: JSON.stringify({ peer_weight: peer, process_weight: process, final_weight: final }) 
+            });
+            closeModal(); toast("权重修改成功"); await load({ quiet: true });
+          });
         } else if (action === "select-project") {
           state.projectId = Number(button.dataset.id); localStorage.setItem("activeProject", String(state.projectId)); await load();
         } else if (action === "new-team") {
@@ -469,6 +533,10 @@ function bindActions() {
           await api("/api/teams/" + button.dataset.id + "/leave", { method: "POST" });
           toast("已退出团队"); await load({ quiet: true });
         } else if (action === "upload") {
+          // 如果成绩已发布，前端直接拦截，连弹窗都不给开！
+            if (p.grades_published) {
+              return toast("成绩已发布，不能再上传成果", true);
+            }
           openModal("上传 " + (button.dataset.name || "迭代成果"), "仅团队负责人可提交；支持拖拽选择文件", formHtml('<div class="field full file-field"><input id="f-file" class="file-input" type="file" accept=".pdf,.zip,.mp4"><label class="upload-zone" id="drop-zone" for="f-file"><span><span class="upload-zone-icon">' + icon("upload") + '</span><strong id="file-label">拖拽文件到这里，或点击选择</strong><span>PDF / ZIP / MP4 · 单文件不超过 200MB · 保留历史版本</span></span></label></div>', "提交成果"));
           document.querySelector("#f-file").onchange = (event) => {
             document.querySelector("#file-label").textContent = event.target.files[0]?.name || "点击选择成果文件";
@@ -498,7 +566,15 @@ function bindActions() {
           await api("/api/submissions/" + button.dataset.id + "/withdraw", { method: "POST" });
           toast("提交已撤回"); await load({ quiet: true });
         } else if (action === "read-notice") {
-          await api("/api/notifications/" + button.dataset.id + "/read", { method: "POST" }); await load({ quiet: true });
+          await api("/api/notifications/" + button.dataset.id + "/read", { method: "POST" });
+          const targetPage = button.dataset.page;
+          if (targetPage && pages[targetPage]) {
+            state.page = targetPage;
+            renderShell();
+            render();
+          } else {
+            await load({ quiet: true });
+          }
         } else if (action === "read-all") {
           await api("/api/notifications/read-all", { method: "POST" }); toast("通知已全部标为已读"); await load({ quiet: true });
         } else if (action === "review") {

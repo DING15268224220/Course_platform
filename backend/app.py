@@ -507,17 +507,48 @@ def seed_demo_data(db: sqlite3.Connection):
             "INSERT INTO final_scores VALUES(?,?,?,?,?,?)",
             (project_id, team_id, "t1", final, "演示终评分", now_iso()),
         )
-    student_ids = [f"s{index}" for index in range(1, 13)]
-    for index, (name, _, peer, _, _) in enumerate(team_specs):
-        target_team_id = team_ids[index]
-        reviewers = [uid for uid in student_ids if uid not in team_specs[index][1]][:3]
-        for reviewer_id in reviewers:
+        student_ids = [f"s{index}" for index in range(1, 13)]
+    
+    # 遍历每一个学生，给他们分配 3 个其他团队的任务并预设分值
+    for student_id in student_ids:
+        # 找到这个学生自己的团队索引
+        own_team_index = -1
+        for i, (_, members, _, _, _) in enumerate(team_specs):
+            if student_id in members:
+                own_team_index = i
+                break
+        
+        # 找到其他 3 个团队
+        other_team_indices = [i for i in range(len(team_specs)) if i != own_team_index]
+        
+        # 给该学生分配 3 个任务
+        for target_index in other_team_indices:
+            target_team_id = team_ids[target_index]
+            target_team_name = team_specs[target_index][0]
+            
+            # 预设分值：使用该团队原本的基准分，随机浮动 -3 到 +3 分，让数据更真实
+            import random
+            base_score = team_specs[target_index][2]
+            score = base_score + random.randint(-3, 3)
+            score = max(0, min(100, score))
+            
+            # 写入互评分配表
+            db.execute(
+                "INSERT INTO review_assignments(project_id,reviewer_id,target_team_id,status,created_at,completed_at) VALUES(?,?,?,'completed',?,?)",
+                (project_id, student_id, target_team_id, now_iso(), now_iso())
+            )
+            # 写入互评分数表
             db.execute(
                 "INSERT INTO peer_reviews(project_id,reviewer_id,target_team_id,score,comment,created_at) VALUES(?,?,?,?,?,?)",
-                (project_id, reviewer_id, target_team_id, peer, f"{name}成果结构完整，建议继续细化异常流程。", now_iso()),
+                (project_id, student_id, target_team_id, score, f"评价 {target_team_name} 的成果，完成度不错，建议继续细化。", now_iso()),
             )
     for uid in student_ids:
-        notify(uid, "互评已开启", "需求分析迭代已进入同伴互评阶段，请完成分配任务。")
+        notify(uid, "互评已开启", "需求分析迭代已进入同伴互评阶段，请完成分配任务。", "review", "reviews")
+        
+    # 给教师和助教补充演示通知
+    notify("t1", "系统提示", "欢迎使用课程项目协作平台，演示项目已初始化完毕。", "info", "overview")
+    notify("t1", "成绩待发布", "各团队互评及评分已基本完成，请前往评分与成绩页面确认并发布。", "grade", "grades")
+    notify("ta1", "过程分待录", "请及时查收各团队提交成果并录入过程分。", "grade", "grades")
     audit("t1", "publish", "project", str(project_id), "发布演示项目并设置默认权重 25%/25%/50%")
 
 
@@ -528,10 +559,23 @@ def gradebook(project_id: int):
     teams = rows("SELECT * FROM teams WHERE project_id=? ORDER BY id", (project_id,))
     result = []
     for team in teams:
-        peer = row("SELECT ROUND(AVG(score),2) AS score, COUNT(*) AS count FROM peer_reviews WHERE project_id=? AND target_team_id=?", (project_id, team["id"]))
+        # 【修改部分】获取该团队所有互评分数
+        peer_rows = rows("SELECT score FROM peer_reviews WHERE project_id=? AND target_team_id=? ORDER BY score ASC", (project_id, team["id"]))
+        scores = [r["score"] for r in peer_rows]
+        count = len(scores)
+        
+        # 剔除最高最低分
+        if count >= 3:
+            valid_scores = scores[1:-1]
+            peer_score = round(sum(valid_scores) / len(valid_scores), 2)
+        elif count > 0:
+            peer_score = round(sum(scores) / count, 2)
+        else:
+            peer_score = None
+
         process = row("SELECT score FROM process_scores WHERE project_id=? AND team_id=?", (project_id, team["id"]))
         final = row("SELECT score FROM final_scores WHERE project_id=? AND team_id=?", (project_id, team["id"]))
-        peer_score = peer["score"] if peer else None
+        
         process_score = process["score"] if process else None
         final_score = final["score"] if final else None
         total = None
@@ -547,7 +591,7 @@ def gradebook(project_id: int):
                 "team_id": team["id"],
                 "team_name": team["name"],
                 "peer_score": peer_score,
-                "peer_count": peer["count"] if peer else 0,
+                "peer_count": count,
                 "process_score": process_score,
                 "final_score": final_score,
                 "total": total,
@@ -678,8 +722,9 @@ def bootstrap():
                 (active_id, my_team["id"]),
             )
         if user["role"] == "student":
+            # 修改：返回 '匿名团队' AS name
             review_targets = rows(
-                """SELECT t.id,t.name,ra.status,ra.completed_at,pr.score AS current_average,
+                """SELECT t.id, '匿名团队' AS name, ra.status, ra.completed_at, pr.score AS current_average,
                    CASE WHEN pr.id IS NULL THEN 0 ELSE 1 END AS reviewed
                    FROM review_assignments ra JOIN teams t ON t.id=ra.target_team_id
                    LEFT JOIN peer_reviews pr ON pr.project_id=ra.project_id AND pr.reviewer_id=ra.reviewer_id
@@ -813,19 +858,38 @@ def update_project(project_id: int):
     if project["grades_published"]:
         return abort_json("成绩已发布，不能再修改项目规则")
     data = request.get_json(silent=True) or {}
-    allowed = {"title", "description", "team_deadline", "overall_deadline", "review_deadline"}
+    
+    # 允许修改权重
+    allowed = {"title", "description", "team_deadline", "overall_deadline", "review_deadline", "peer_weight", "process_weight", "final_weight"}
     updates = {key: str(data[key]).strip() for key in allowed if key in data and str(data[key]).strip()}
+    
     if not updates:
         return abort_json("没有可保存的修改")
+        
+    # 校验权重逻辑
+    if any(k in updates for k in ["peer_weight", "process_weight", "final_weight"]):
+        try:
+            p_w = float(updates.get("peer_weight", project["peer_weight"] * 100))
+            pr_w = float(updates.get("process_weight", project["process_weight"] * 100))
+            f_w = float(updates.get("final_weight", project["final_weight"] * 100))
+            if any(v < 0 or v > 100 for v in (p_w, pr_w, f_w)) or abs(p_w + pr_w + f_w - 100) > 0.001:
+                return abort_json("三项评分权重必须在 0—100% 之间，且合计 100%")
+            updates["peer_weight"] = p_w / 100
+            updates["process_weight"] = pr_w / 100
+            updates["final_weight"] = f_w / 100
+        except (ValueError, TypeError):
+            return abort_json("权重必须是数字")
+
     merged = {**project, **updates}
     try:
         if parse_deadline(merged["team_deadline"]) >= parse_deadline(merged["overall_deadline"]):
             return abort_json("组队截止时间必须早于项目总截止时间")
     except ValueError:
         return abort_json("截止时间格式无效")
+        
     assignments = ",".join(f"{key}=?" for key in updates)
     get_db().execute(f"UPDATE projects SET {assignments},updated_at=? WHERE id=?", (*updates.values(), now_iso(), project_id))
-    audit(user["id"], "update", "project", project_id, "修改项目基本信息", project_id)
+    audit(user["id"], "update", "project", project_id, "修改项目基本信息及权重", project_id)
     get_db().commit()
     return jsonify({"ok": True, "message": "项目已更新"})
 
@@ -943,6 +1007,12 @@ def upload_submission(iteration_id: int):
     iteration = row("SELECT * FROM iterations WHERE id=?", (iteration_id,))
     if not iteration:
         return abort_json("迭代不存在", 404)
+        
+    # 新增：成绩发布后禁止上传
+    project_check = row("SELECT grades_published FROM projects WHERE id=?", (iteration["project_id"],))
+    if project_check and project_check["grades_published"]:
+        return abort_json("成绩已发布，不能上传或修改成果", 403)
+
     membership = row(
         """SELECT t.id AS team_id, tm.is_leader FROM teams t JOIN team_members tm ON tm.team_id=t.id
            WHERE t.project_id=? AND tm.user_id=?""",
@@ -1001,7 +1071,6 @@ def upload_submission(iteration_id: int):
     db.commit()
     return jsonify({"ok": True, "message": "成果提交成功"})
 
-
 @app.post("/api/submissions/<int:submission_id>/withdraw")
 def withdraw_submission(submission_id: int):
     user, error = require_role("student")
@@ -1015,6 +1084,13 @@ def withdraw_submission(submission_id: int):
     )
     if not submission or not submission["is_leader"]:
         return abort_json("只有团队负责人可以撤回", 403)
+        
+    # 新增：成绩发布后禁止撤回
+    team_proj = row("SELECT project_id FROM teams WHERE id=?", (submission["team_id"],))
+    project_check = row("SELECT grades_published FROM projects WHERE id=?", (team_proj["project_id"],))
+    if project_check and project_check["grades_published"]:
+        return abort_json("成绩已发布，不能撤回提交", 403)
+
     if datetime.now() > parse_deadline(submission["deadline"]):
         return abort_json("截止后不可撤回")
     db = get_db()
@@ -1087,6 +1163,11 @@ def submit_review():
     project = row("SELECT * FROM projects WHERE id=?", (project_id,))
     if not project or not project["review_open"]:
         return abort_json("互评尚未开启")
+        
+    # 新增：成绩发布后禁止互评
+    if project.get("grades_published"):
+        return abort_json("成绩已发布，互评已冻结", 403)
+
     selected_project(project_id, user)
     if project.get("review_deadline") and datetime.now() > parse_deadline(project["review_deadline"]):
         return abort_json("互评已截止")
