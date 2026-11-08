@@ -61,7 +61,7 @@ function Assert-Npm {
 function Start-Web {
     $python = Install-PythonRuntime
     $env:PORT = [string]$WebPort
-    $url = "http://127.0.0.1:$WebPort/?version=3.1.0"
+    $url = "http://127.0.0.1:$WebPort/?version=4.0.0"
     Write-Host "正在启动网页版：$url" -ForegroundColor Green
     Write-Host "运行期间请保持此窗口开启；按 Ctrl+C 可停止服务。" -ForegroundColor DarkGray
 
@@ -213,7 +213,7 @@ if ($Action -ne "menu") {
 while ($true) {
     Clear-Host
     Write-Host "==================================================" -ForegroundColor Blue
-    Write-Host "   高校课程项目协作与评审平台 V3.1" -ForegroundColor White
+    Write-Host "   高校课程项目协作与评审平台 V4.0" -ForegroundColor White
     Write-Host "==================================================" -ForegroundColor Blue
     Write-Host "  1. 启动网页版"
     Write-Host "  2. 启动桌面版"

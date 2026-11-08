@@ -110,6 +110,8 @@ class PlatformTest(unittest.TestCase):
         with platform_app.app.app_context():
             db = platform_app.get_db()
             db.execute("DELETE FROM team_members WHERE team_id=1 AND user_id='s9'")
+            db.execute("UPDATE projects SET team_deadline='2026-12-01 23:59:00' WHERE id=1")
+            db.execute("UPDATE projects SET review_open=0 WHERE id=1")
             db.commit()
         self.login("s1")
         response = self.post(
@@ -183,6 +185,10 @@ class PlatformTest(unittest.TestCase):
         personal_rows = list(workbook["个人明细"].iter_rows(values_only=True))
         s1_row = next(values for values in personal_rows[1:] if values[1] == "s1")
         self.assertEqual(s1_row[-1], 64)
+        pdf = self.client.get("/api/projects/1/grades.pdf")
+        self.assertEqual(pdf.status_code, 200)
+        self.assertEqual(pdf.mimetype, "application/pdf")
+        self.assertTrue(pdf.data.startswith(b"%PDF-"))
 
         self.login("s1")
         data = self.client.get("/api/bootstrap").get_json()
@@ -222,6 +228,136 @@ class PlatformTest(unittest.TestCase):
         self.login("s1")
         notification_id = self.client.get("/api/bootstrap").get_json()["notifications"][0]["id"]
         self.assertEqual(self.post(f"/api/notifications/{notification_id}/read").status_code, 200)
+
+    def test_v4_login_lockout_after_five_failures(self):
+        for _ in range(5):
+            self.assertEqual(self.login("s1", "wrong-password").status_code, 401)
+        locked = self.login("s1", "123456")
+        self.assertEqual(locked.status_code, 423)
+        self.assertIn("锁定", locked.get_json()["message"])
+
+    def test_v4_course_project_draft_and_publish(self):
+        self.login("t1")
+        course = self.post("/api/courses", json={"name": "软件测试", "term": "2027 春"})
+        self.assertEqual(course.status_code, 200)
+        course_id = course.get_json()["course_id"]
+        draft = self.post(
+            "/api/projects",
+            json={
+                "course_id": course_id,
+                "title": "测试实践项目",
+                "description": "完成测试闭环",
+                "team_deadline": "2027-03-10 23:59:00",
+                "overall_deadline": "2027-06-10 23:59:00",
+                "review_deadline": "2027-06-01 23:59:00",
+                "save_as_draft": True,
+                "iterations": [{"name": "迭代 1", "deadline": "2027-05-01 23:59:00", "requirements": "提交测试报告"}],
+            },
+        )
+        self.assertEqual(draft.status_code, 200)
+        project_id = draft.get_json()["project_id"]
+        with platform_app.app.app_context():
+            self.assertEqual(platform_app.row("SELECT status FROM projects WHERE id=?", (project_id,))["status"], "draft")
+        self.assertEqual(self.post(f"/api/projects/{project_id}/publish").status_code, 200)
+
+    def test_v4_join_request_requires_leader_approval(self):
+        with platform_app.app.app_context():
+            db = platform_app.get_db()
+            db.execute("DELETE FROM team_members WHERE team_id=1 AND user_id='s9'")
+            db.execute("UPDATE projects SET team_deadline='2026-12-01 23:59:00' WHERE id=1")
+            db.commit()
+        self.login("s9")
+        requested = self.post("/api/teams/2/join")
+        self.assertEqual(requested.status_code, 200)
+        with platform_app.app.app_context():
+            join_request = platform_app.row("SELECT id,status FROM team_join_requests WHERE team_id=2 AND user_id='s9'")
+        self.assertEqual(join_request["status"], "pending")
+        self.login("s3")
+        approved = self.post(f"/api/team-join-requests/{join_request['id']}/decision", json={"decision": "approved"})
+        self.assertEqual(approved.status_code, 200)
+        with platform_app.app.app_context():
+            self.assertIsNotNone(platform_app.row("SELECT 1 FROM team_members WHERE team_id=2 AND user_id='s9'"))
+
+    def test_v4_member_task_allows_designated_member_submission(self):
+        with platform_app.app.app_context():
+            db = platform_app.get_db()
+            db.execute("UPDATE projects SET review_open=0 WHERE id=1")
+            db.commit()
+        self.login("s1")
+        created = self.post(
+            "/api/member-tasks",
+            json={
+                "project_id": 1,
+                "iteration_id": 2,
+                "assignee_id": "s2",
+                "title": "提交设计成果",
+                "description": "整理设计文档并提交",
+                "due_at": "2026-12-01 23:59:00",
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        self.login("s2")
+        uploaded = self.post(
+            "/api/submissions/2",
+            data={"file": (io.BytesIO(b"%PDF-1.7\n%%EOF"), "design.pdf")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(uploaded.status_code, 200)
+
+    def test_v4_process_return_and_iteration_score(self):
+        self.login("ta1")
+        returned = self.post(
+            "/api/process-checks",
+            json={"project_id": 1, "team_id": 1, "iteration_id": 1, "action": "returned", "comment": "补充验收依据"},
+        )
+        self.assertEqual(returned.status_code, 200)
+        with platform_app.app.app_context():
+            self.assertEqual(platform_app.row("SELECT status FROM submissions WHERE team_id=1 AND iteration_id=1")["status"], "returned")
+        received = self.post(
+            "/api/process-checks",
+            json={"project_id": 1, "team_id": 1, "iteration_id": 1, "action": "received", "score": 88, "comment": "修改后查收"},
+        )
+        self.assertEqual(received.status_code, 200)
+        with platform_app.app.app_context():
+            self.assertEqual(platform_app.row("SELECT score FROM process_scores WHERE project_id=1 AND team_id=1")["score"], 88)
+
+    def test_v4_multidimensional_review_draft_and_alert(self):
+        self.login("s1")
+        assignment = self.client.get("/api/bootstrap").get_json()["review_targets"][0]["assignment_id"]
+        draft = self.post(
+            "/api/reviews",
+            json={"project_id": 1, "assignment_id": assignment, "completeness_score": 0, "innovation_score": 0, "documentation_score": 0, "comment": "", "status": "draft"},
+        )
+        self.assertEqual(draft.status_code, 200)
+        submitted = self.post(
+            "/api/reviews",
+            json={"project_id": 1, "assignment_id": assignment, "completeness_score": 0, "innovation_score": 0, "documentation_score": 0, "comment": "需要全面改进", "status": "submitted"},
+        )
+        self.assertEqual(submitted.status_code, 200)
+        with platform_app.app.app_context():
+            review = platform_app.row("SELECT completeness_score,innovation_score,documentation_score,status FROM peer_reviews WHERE reviewer_id='s1' AND project_id=1 AND completeness_score IS NOT NULL ORDER BY id LIMIT 1")
+            self.assertEqual(review["status"], "submitted")
+            self.assertEqual(review["completeness_score"], 0)
+            self.assertIsNotNone(platform_app.row("SELECT 1 FROM review_alerts WHERE project_id=1 AND status='open'"))
+
+    def test_v4_grade_appeal_admin_resolution(self):
+        self.login("t1")
+        self.assertEqual(self.post("/api/projects/1/publish-grades").status_code, 200)
+        self.login("s1")
+        appeal = self.post("/api/grade-appeals", json={"project_id": 1, "reason": "过程检查记录需要复核"})
+        self.assertEqual(appeal.status_code, 200)
+        with platform_app.app.app_context():
+            appeal_id = platform_app.row("SELECT id FROM grade_appeals WHERE project_id=1 AND user_id='s1'")["id"]
+        self.login("a1")
+        resolved = self.post(f"/api/grade-appeals/{appeal_id}/resolve", json={"decision": "approved", "result": "已核查，教师将撤回后重发"})
+        self.assertEqual(resolved.status_code, 200)
+        self.assertEqual(self.post("/api/projects/1/unpublish-grades", json={"reason": "执行复核结论"}).status_code, 200)
+        verification = self.client.get("/api/audit/verify")
+        self.assertEqual(verification.status_code, 200)
+        self.assertTrue(verification.get_json()["valid"])
+        backup = self.post("/api/admin/backup")
+        self.assertEqual(backup.status_code, 200)
+        self.assertTrue(Path(backup.get_json()["file"]).exists())
 
 
 if __name__ == "__main__":

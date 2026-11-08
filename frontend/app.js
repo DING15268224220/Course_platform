@@ -45,7 +45,7 @@ function esc(value) {
   return String(value ?? "").replace(/[&<>'"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[ch]));
 }
 function fmt(value) { return value ? String(value).replace("T", " ").slice(0, 16) : "—"; }
-function roleName(role) { return ({ teacher: "教师", assistant: "助教", student: "学生" })[role] || role; }
+function roleName(role) { return ({ admin: "教务管理员", teacher: "教师", assistant: "助教", student: "学生" })[role] || role; }
 function clamp(value, min = 0, max = 100) { return Math.max(min, Math.min(max, Number(value) || 0)); }
 function pct(value, total) { return total ? Math.round((Number(value) / Number(total)) * 100) : 0; }
 function project() { return state.data?.projects?.find((item) => item.id === state.data.active_project_id) || state.data?.projects?.[0]; }
@@ -66,6 +66,14 @@ async function api(path, options = {}) {
   }
   if (!response.ok) throw new Error("请求失败");
   return response;
+}
+
+function responseFilename(response, fallback) {
+  const disposition = response.headers.get("content-disposition") || "";
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (encoded) return decodeURIComponent(encoded[1].replace(/["']/g, ""));
+  const plain = disposition.match(/filename="?([^";]+)"?/i);
+  return plain ? plain[1].trim() : fallback;
 }
 
 function toast(message, isError = false) {
@@ -147,8 +155,9 @@ async function load({ quiet = false } = {}) {
 }
 
 function allowedPages(role) {
-  if (role === "student") return ["overview", "projects", "teams", "submissions", "reviews", "grades"];
+  if (role === "student") return ["overview", "projects", "teams", "submissions", "reviews", "grades", "logs"];
   if (role === "assistant") return ["overview", "projects", "teams", "submissions", "grades", "logs"];
+  if (role === "admin") return ["overview", "projects", "teams", "submissions", "grades", "logs"];
   return Object.keys(pages);
 }
 
@@ -324,9 +333,10 @@ function dashboardTeamProgress(p) {
 
 function dashboardTodoCard(p) {
   const finalPending = (p.gradebook || []).filter((item) => item.final_score === null || item.final_score === undefined).length;
+  const reviewPage = allowedPages(state.data.current_user.role).includes("reviews") ? "reviews" : "grades";
   const todos = [
     { icon: "file", text: "审核最新迭代成果", meta: state.data.submissions.length + " 份记录", level: "高", tone: "red", page: "submissions" },
-    { icon: "grade", text: "查看异常互评分数", meta: "匿名评审", level: "中", tone: "amber", page: "reviews" },
+    { icon: "grade", text: "查看异常互评分数", meta: "匿名评审", level: "中", tone: "amber", page: reviewPage },
     { icon: "check", text: "完成教师终评", meta: finalPending + " 支团队", level: finalPending ? "高" : "低", tone: finalPending ? "red" : "green", page: "grades" },
     { icon: "send", text: p.grades_published ? "查看已发布成绩" : "发布课程成绩", meta: fmt(p.overall_deadline).slice(5, 10), level: "中", tone: "amber", page: "grades" },
   ];
@@ -391,6 +401,7 @@ function progressRow(label, progress) {
 function identityCard() {
   const user = state.data.current_user;
   const permissions = {
+    admin: ["全局查看课程与项目", "处理成绩复核与撤回发布", "导出成绩归档和查看审计日志"],
     teacher: ["发布项目并设置评分规则", "开启互评、录入终评分", "发布与导出课程成绩"],
     assistant: ["查看全部团队提交", "记录团队过程分", "查看成绩与审计日志"],
     student: ["浏览任务并参与团队", "负责人提交迭代成果", "完成分配的同伴互评"],
@@ -431,20 +442,24 @@ function scoreCell(value, type) {
 
 function projectsPage() {
   const user = state.data.current_user;
-  const action = user.role === "teacher" ? '<button class="button" type="button" data-action="new-project">' + icon("plus") + "<span>发布新项目</span></button>" : "";
+  const action = user.role === "teacher"
+    ? '<button class="button ghost" type="button" data-action="new-course">' + icon("plus") + '<span>新建课程</span></button><button class="button" type="button" data-action="new-project">' + icon("plus") + "<span>新建项目</span></button>"
+    : "";
   
   return '<section class="card"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("project") + '</span><div><h2>课程项目与迭代</h2><p class="subtle">清晰管理任务要求、阶段截止与评分权重</p></div></div><div class="card-actions">' + action + "</div></div>"
     + state.data.projects.map((item) => 
       '<div class="project-hero spaced ' + (item.id === state.data.active_project_id ? "selected-project" : "") + '">' 
         + '<div class="project-top">' 
           + '<div>' 
-            + '<div class="project-meta"><span class="tag green">' + (item.status === "published" ? "已发布" : "草稿") + '</span><span class="project-code">COURSE · ' + esc(item.course_name) + '</span></div>'
+            + '<div class="project-meta"><span class="tag ' + (item.status === "published" ? "green" : "amber") + '">' + (item.status === "published" ? "已发布" : "草稿") + '</span><span class="project-code">COURSE · ' + esc(item.course_name) + '</span></div>'
             + '<h2>' + esc(item.title) + '</h2>'
             + '<p class="project-description subtle">' + esc(item.description) + '</p>'
           + '</div>' 
           + '<div class="card-actions project-actions">'
             + '<div class="deadline-block"><span>组队截止 / 项目截止</span><strong>' + fmt(item.team_deadline).slice(5) + ' · ' + fmt(item.overall_deadline).slice(5) + '</strong></div>' 
             + (user.role === "teacher" && !item.grades_published ? '<button class="button ghost small" data-action="edit-weights" data-id="' + item.id + '" type="button">' + icon("edit") + '<span>修改权重</span></button>' : '')
+            + (user.role === "teacher" && !item.grades_published ? '<button class="button ghost small" data-action="add-iteration" data-id="' + item.id + '" type="button">' + icon("plus") + '<span>新增迭代</span></button>' : '')
+            + (user.role === "teacher" && item.status === "draft" ? '<button class="button secondary small" data-action="publish-project" data-id="' + item.id + '" type="button">确认发布</button>' : '')
             + (item.id !== state.data.active_project_id ? '<button class="button secondary small" data-action="select-project" data-id="' + item.id + '" type="button">切换到此项目</button>' : '<span class="tag green">当前项目</span>')
           + '</div>' 
         + '</div>' 
@@ -467,31 +482,57 @@ function avatars(team) {
 function teamsPage() {
   const user = state.data.current_user;
   const createAction = user.role === "student" && !state.data.my_team ? '<button class="button" type="button" data-action="new-team">' + icon("plus") + "<span>创建团队</span></button>" : "";
-  return '<section class="card spaced"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("team") + '</span><div><h2>项目团队</h2><p class="subtle">每队 3—5 人，组队截止后成员锁定</p></div></div><div class="card-actions">' + createAction + '</div></div><div class="team-grid">' + state.data.teams.map((team) => {
+  return '<section class="card spaced"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("team") + '</span><div><h2>项目团队</h2><p class="subtle">每队 3—5 人，入队申请由组长审核</p></div></div><div class="card-actions">' + createAction + '</div></div><div class="team-grid">' + state.data.teams.map((team) => {
     const status = teamStatus(team);
     const join = user.role === "student" && !state.data.my_team ? '<button class="button secondary small" type="button" data-action="join-team" data-id="' + team.id + '">申请加入</button>' : "";
     const leave = user.role === "student" && state.data.my_team?.id === team.id ? '<button class="button danger small" type="button" data-action="leave-team" data-id="' + team.id + '">退出团队</button>' : "";
-    return '<article class="team-card"><div class="team-card-head"><span class="tag ' + status[1] + '">' + status[0] + '</span><span class="project-code">TEAM · ' + String(team.id).padStart(2, "0") + '</span></div><h3>' + esc(team.name) + '</h3><span class="leader">队长 · ' + esc(team.leader_name) + '</span>' + avatars(team) + '<div class="team-card-foot"><span class="subtle">' + (team.member_count >= 3 ? "人数符合要求" : "还需 " + (3 - team.member_count) + " 人") + '</span>' + join + leave + "</div></article>";
-  }).join("") + "</div></section>";
+    const adjust = ["teacher", "admin"].includes(user.role) ? '<button class="button ghost small" type="button" data-action="adjust-member" data-id="' + team.id + '" data-name="' + esc(team.name) + '">例外调整</button>' : "";
+    return '<article class="team-card"><div class="team-card-head"><span class="tag ' + status[1] + '">' + status[0] + '</span><span class="project-code">TEAM · ' + String(team.id).padStart(2, "0") + '</span></div><h3>' + esc(team.name) + '</h3><span class="leader">队长 · ' + esc(team.leader_name) + '</span>' + avatars(team) + '<div class="team-card-foot"><span class="subtle">' + (team.member_count >= 3 ? "人数符合要求" : "还需 " + (3 - team.member_count) + " 人") + '</span><div class="card-actions">' + join + leave + adjust + "</div></div></article>";
+  }).join("") + "</div></section>" + joinRequestPanel() + memberTaskPanel();
+}
+
+function joinRequestPanel() {
+  const requests = state.data.join_requests || [];
+  if (!requests.length) return "";
+  return '<section class="card spaced"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("users") + '</span><div><h2>入队申请</h2><p class="subtle">申请、审批和结果均保留操作记录</p></div></div></div><div class="table-wrap"><table><thead><tr><th>申请人</th><th>目标团队</th><th>申请时间</th><th>状态</th><th>操作</th></tr></thead><tbody>' + requests.map((item) => '<tr><td><strong>' + esc(item.user_name) + '</strong></td><td>' + esc(item.team_name) + '</td><td>' + fmt(item.requested_at) + '</td><td><span class="tag ' + (item.status === "pending" ? "amber" : item.status === "approved" ? "green" : "gray") + '">' + ({ pending: "待审核", approved: "已同意", rejected: "已拒绝" }[item.status] || esc(item.status)) + '</span></td><td>' + (item.status === "pending" && state.data.current_user.role === "student" && state.data.my_team?.is_leader ? '<div class="card-actions"><button class="button secondary small" data-action="decide-join" data-id="' + item.id + '" data-decision="approved">同意</button><button class="button danger small" data-action="decide-join" data-id="' + item.id + '" data-decision="rejected">拒绝</button></div>' : '—') + '</td></tr>').join("") + '</tbody></table></div></section>';
+}
+
+function memberTaskPanel() {
+  const tasks = state.data.member_tasks || [];
+  const user = state.data.current_user;
+  const canAssign = user.role === "student" && state.data.my_team?.is_leader;
+  if (!tasks.length && !canAssign) return "";
+  const action = canAssign ? '<button class="button" type="button" data-action="new-member-task">' + icon("plus") + '<span>分配成员任务</span></button>' : "";
+  return '<section class="card spaced"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("check") + '</span><div><h2>迭代任务分工</h2><p class="subtle">组长分配任务，成员更新个人完成状态</p></div></div><div class="card-actions">' + action + '</div></div>' + (tasks.length ? '<div class="table-wrap"><table><thead><tr><th>迭代</th><th>任务</th><th>负责人</th><th>截止时间</th><th>状态</th><th>操作</th></tr></thead><tbody>' + tasks.map((task) => '<tr><td>' + esc(task.iteration_name) + '</td><td><strong>' + esc(task.title) + '</strong><br><span class="subtle">' + esc(task.description) + '</span></td><td>' + esc(task.assignee_name) + '</td><td>' + fmt(task.due_at) + '</td><td><span class="tag ' + (task.status === "done" ? "green" : task.status === "doing" ? "amber" : "gray") + '">' + ({ todo: "待开始", doing: "进行中", done: "已完成" }[task.status] || task.status) + '</span></td><td>' + (user.role === "student" ? '<button class="button ghost small" data-action="task-status" data-id="' + task.id + '" data-status="' + (task.status === "todo" ? "doing" : task.status === "doing" ? "done" : "todo") + '">' + (task.status === "done" ? "重新开始" : task.status === "doing" ? "标记完成" : "开始任务") + '</button>' : '—') + '</td></tr>').join("") + '</tbody></table></div>' : emptyState("暂无成员任务", "点击右上角为团队成员分配迭代任务。", "check")) + '</section>';
 }
 
 function submissionsPage() {
   const user = state.data.current_user;
   const p = project();
-  const uploadAction = user.role === "student" && state.data.my_team?.is_leader ? p.iterations.map((item) => '<button class="button" type="button" data-action="upload" data-id="' + item.id + '" data-name="' + esc(item.name) + '">' + icon("upload") + '<span>提交 ' + esc(item.name) + '</span></button>').join("") : "";
+  const assignedIterations = new Set((state.data.member_tasks || []).filter((task) => task.assignee_id === user.id).map((task) => task.iteration_id));
+  const uploadAction = user.role === "student" ? p.iterations.filter((item) => state.data.my_team?.is_leader || assignedIterations.has(item.id)).map((item) => '<button class="button" type="button" data-action="upload" data-id="' + item.id + '" data-name="' + esc(item.name) + '">' + icon("upload") + '<span>提交 ' + esc(item.name) + '</span></button>').join("") : "";
+  const remindAction = user.role === "assistant" || user.role === "teacher" ? p.iterations.map((item) => '<button class="button ghost small" type="button" data-action="remind-missing" data-id="' + item.id + '">催交 ' + esc(item.name) + '</button>').join("") : "";
   return '<section class="card"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("file") + '</span><div><h2>迭代提交记录</h2><p class="subtle">支持 PDF、ZIP、MP4，单文件不超过 200MB</p></div></div><div class="card-actions">' + uploadAction + '</div></div>'
-    + (user.role === "student" && state.data.my_team?.is_leader ? '<div class="upload-zone spaced"><div><span class="upload-zone-icon">' + icon("upload") + '</span><strong>按右上角选择迭代并上传成果</strong><span>提交后保留全部版本；支持 PDF / ZIP / MP4，单文件不超过 200MB</span></div></div>' : "")
+    + (remindAction ? '<div class="card-actions spaced">' + remindAction + '</div>' : '')
+    + (user.role === "student" && uploadAction ? '<div class="upload-zone spaced"><div><span class="upload-zone-icon">' + icon("upload") + '</span><strong>按右上角选择迭代并上传成果</strong><span>负责人或被指定成员可提交；系统保留全部版本</span></div></div>' : "")
     + submissionTable()
-    + "</section>";
+    + "</section>" + processCheckHistory();
 }
 
 function submissionTable() {
   if (!state.data.submissions.length) return emptyState("暂无提交记录", "团队负责人上传成果后，版本和提交时间会显示在这里。", "file");
   const myTeam = state.data.my_team;
-  return '<div class="table-wrap"><table><thead><tr><th>团队</th><th>迭代阶段</th><th>成果文件</th><th>状态</th><th>版本</th><th>提交时间</th><th>操作</th></tr></thead><tbody>' + state.data.submissions.map((item) => '<tr><td><strong>' + esc(item.team_name) + '</strong></td><td>' + esc(item.iteration_name) + '</td><td>' + esc(item.file_name) + '</td><td><span class="tag ' + (item.status === "withdrawn" ? "amber" : "green") + '">' + statusText(item.status) + '</span></td><td>v' + item.version + ' · ' + (item.version_count || 1) + ' 个版本</td><td class="nowrap">' + fmt(item.submitted_at) + '</td><td><div class="card-actions"><button class="button ghost small" data-action="download" data-id="' + item.id + '" type="button">下载</button><button class="button ghost small" data-action="versions" data-id="' + item.id + '" type="button">历史</button>' + (myTeam?.id === item.team_id && myTeam?.is_leader && item.status !== "withdrawn" ? '<button class="button danger small" data-action="withdraw" data-id="' + item.id + '" type="button">撤回</button>' : "") + "</div></td></tr>").join("") + "</tbody></table></div>";
+  const role = state.data.current_user.role;
+  return '<div class="table-wrap"><table><thead><tr><th>团队</th><th>迭代阶段</th><th>成果文件</th><th>状态</th><th>版本</th><th>提交时间</th><th>操作</th></tr></thead><tbody>' + state.data.submissions.map((item) => '<tr><td><strong>' + esc(item.team_name) + '</strong></td><td>' + esc(item.iteration_name) + '</td><td>' + esc(item.file_name) + '</td><td><span class="tag ' + (item.status === "withdrawn" || item.status === "returned" ? "amber" : "green") + '">' + statusText(item.status) + (item.returned_reason ? '<br><small>' + esc(item.returned_reason) + '</small>' : '') + '</span></td><td>v' + item.version + ' · ' + (item.version_count || 1) + ' 个版本</td><td class="nowrap">' + fmt(item.submitted_at) + '</td><td><div class="card-actions"><button class="button ghost small" data-action="download" data-id="' + item.id + '" type="button">下载</button><button class="button ghost small" data-action="versions" data-id="' + item.id + '" type="button">历史</button>' + (role === "assistant" && !project().grades_published ? '<button class="button secondary small" data-action="process-check" data-team="' + item.team_id + '" data-iteration="' + item.iteration_id + '" data-name="' + esc(item.team_name) + ' · ' + esc(item.iteration_name) + '">过程检查</button>' : '') + (myTeam?.id === item.team_id && myTeam?.is_leader && item.status !== "withdrawn" ? '<button class="button danger small" data-action="withdraw" data-id="' + item.id + '" type="button">撤回</button>' : "") + "</div></td></tr>").join("") + "</tbody></table></div>";
 }
 function statusText(status) {
-  return ({ submitted: "已提交", reviewing: "评审中", withdrawn: "已撤回", returned: "已退回", completed: "已完成", archived: "已归档" })[status] || status;
+  return ({ submitted: "已提交", reviewing: "评审中", received: "助教已查收", withdrawn: "已撤回", returned: "已退回", completed: "已完成", archived: "已归档" })[status] || status;
+}
+
+function processCheckHistory() {
+  const checks = state.data.process_checks || [];
+  if (!checks.length) return "";
+  return '<section class="card spaced"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("check") + '</span><div><h2>过程检查记录</h2><p class="subtle">按迭代留存查收、退回和阶段评分依据</p></div></div></div><div class="audit-list">' + checks.map((item) => '<article class="audit-item"><span class="audit-marker">' + icon("check") + '</span><div class="audit-copy"><strong>' + esc(item.team_name) + ' · ' + esc(item.iteration_name) + ' · ' + ({ returned: "退回修改", received: "查收", scored: "阶段评分" }[item.action] || item.action) + '</strong><span>' + esc(item.comment) + (item.score === null ? '' : ' · ' + item.score + ' 分') + ' · ' + esc(item.assistant_name) + '</span></div><time class="audit-time">' + fmt(item.created_at) + '</time></article>').join("") + '</div></section>';
 }
 
 function reviewsPage() {
@@ -499,13 +540,19 @@ function reviewsPage() {
   const user = state.data.current_user;
   if (user.role === "teacher") {
     const completed = p.gradebook.reduce((sum, item) => sum + Number(item.peer_count || 0), 0);
-    return '<section class="card"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("review") + '</span><div><h2>互评阶段控制</h2><p class="subtle">开启后，学生可评审其他团队，每人最多 3 个团队</p></div></div><button class="button ' + (p.review_open ? "danger" : "") + '" type="button" data-action="toggle-review">' + icon(p.review_open ? "lock" : "send") + "<span>" + (p.review_open ? "关闭互评" : "开启互评") + '</span></button></div><div class="project-hero"><div class="project-top"><div><span class="tag ' + (p.review_open ? "green" : "gray") + '">' + (p.review_open ? "互评进行中" : "互评未开启") + '</span><h2>本轮互评已收集 ' + completed + ' 份评价</h2><p class="subtle">系统会阻止学生评价本团队，并限制每人最多评价 3 个其他团队。</p></div><div class="deadline-block"><span>当前阶段</span><strong>' + (p.review_open ? "开放提交" : "暂停提交") + "</strong></div></div></div></section>";
+    return '<section class="card"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("review") + '</span><div><h2>互评阶段控制</h2><p class="subtle">仅对已提交团队分配；团队不足时自动降级轮转</p></div></div><button class="button ' + (p.review_open ? "danger" : "") + '" type="button" data-action="toggle-review">' + icon(p.review_open ? "lock" : "send") + "<span>" + (p.review_open ? "关闭互评" : "开启互评") + '</span></button></div><div class="project-hero"><div class="project-top"><div><span class="tag ' + (p.review_open ? "green" : "gray") + '">' + (p.review_open ? "互评进行中" : "互评未开启") + '</span><h2>本轮互评已收集 ' + completed + ' 份评价</h2><p class="subtle">系统会阻止学生评价本团队，并限制每人最多评价 3 个其他团队。</p></div><div class="deadline-block"><span>当前阶段</span><strong>' + (p.review_open ? "开放提交" : "暂停提交") + "</strong></div></div></div></section>" + reviewAlertsPanel();
   }
   if (user.role !== "student") return emptyState("当前角色不参与同伴互评", "助教可以在评分页面查看团队得分。", "review");
   const targets = state.data.review_targets || [];
   const completed = targets.filter((item) => item.reviewed).length;
   
-  return '<section class="card"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("review") + '</span><div><h2>我的互评任务</h2><p class="subtle">已完成 ' + completed + "/" + Math.min(3, targets.length) + ' 项 · 系统不会公开对方身份</p></div></div><span class="tag ' + (p.review_open ? "green" : "gray") + '">' + (p.review_open ? "互评开放" : "互评关闭") + '</span></div><div class="review-grid">' + targets.map((target) => '<article class="review-card ' + (target.reviewed ? "complete" : "") + '"><span class="tag ' + (target.reviewed ? "green" : "amber") + '">' + (target.reviewed ? "已完成" : "待评价") + '</span><h3>' + esc(target.name) + '</h3><p class="subtle">匿名查看成果后，从完成度、创新性和文档质量进行综合评价。</p><div class="review-score"><strong>' + (target.current_score ?? "—") + '</strong><span>我的评分</span></div><div class="card-actions review-actions-center">' + (target.has_submission ? '<button class="button ghost small" type="button" data-action="download-review" data-id="' + target.assignment_id + '">' + icon("download") + ' <span>下载匿名成果</span></button>' : '') + '<button class="button secondary small" type="button" data-action="review" data-id="' + target.assignment_id + '" data-name="' + esc(target.name) + '">' + icon("edit") + "<span>" + (target.reviewed ? "修改评价" : "开始评价") + "</span></button></div></article>").join("") + "</div></section>";
+  return '<section class="card"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("review") + '</span><div><h2>我的互评任务</h2><p class="subtle">已完成 ' + completed + "/" + Math.min(3, targets.length) + ' 项 · 系统不会公开对方身份</p></div></div><span class="tag ' + (p.review_open ? "green" : "gray") + '">' + (p.review_open ? "互评开放" : "互评关闭") + '</span></div><div class="review-grid">' + targets.map((target) => '<article class="review-card ' + (target.reviewed ? "complete" : "") + '"><span class="tag ' + (target.reviewed ? "green" : target.review_status === "draft" ? "violet" : "amber") + '">' + (target.reviewed ? "已完成" : target.review_status === "draft" ? "草稿" : "待评价") + '</span><h3>' + esc(target.name) + '</h3><p class="subtle">匿名查看成果后，从完成度、创新性和文档质量分别评分。</p><div class="review-score"><strong>' + (target.current_score ?? "—") + '</strong><span>三维平均分</span></div><div class="card-actions review-actions-center">' + (target.has_submission ? '<button class="button ghost small" type="button" data-action="download-review" data-id="' + target.assignment_id + '">' + icon("download") + ' <span>下载匿名成果</span></button>' : '') + '<button class="button secondary small" type="button" data-action="review" data-id="' + target.assignment_id + '" data-name="' + esc(target.name) + '" data-completeness="' + (target.completeness_score ?? 85) + '" data-innovation="' + (target.innovation_score ?? 85) + '" data-documentation="' + (target.documentation_score ?? 85) + '">' + icon("edit") + "<span>" + (target.reviewed || target.review_status === "draft" ? "继续评价" : "开始评价") + "</span></button></div></article>").join("") + "</div></section>";
+}
+
+function reviewAlertsPanel() {
+  const alerts = state.data.review_alerts || [];
+  if (!alerts.length) return "";
+  return '<section class="card spaced"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("activity") + '</span><div><h2>异常评分预警</h2><p class="subtle">评分离散度过大时挂起预警，人工复核后方可发布成绩</p></div></div></div><div class="audit-list">' + alerts.map((item) => '<article class="audit-item"><span class="audit-marker ' + (item.status === "open" ? "score-log" : "") + '">' + icon("activity") + '</span><div class="audit-copy"><strong>' + esc(item.team_name) + ' · ' + (item.status === "open" ? "待复核" : "已处理") + '</strong><span>' + esc(item.detail) + (item.resolution ? ' · 结论：' + esc(item.resolution) : '') + '</span></div>' + (item.status === "open" ? '<button class="button danger small" data-action="resolve-alert" data-id="' + item.id + '">处理预警</button>' : '<span class="tag green">已处理</span>') + '</article>').join("") + '</div></section>';
 }
 
 function gradesPage() {
@@ -514,12 +561,21 @@ function gradesPage() {
   if (user.role === "student" && !p.grades_published) return emptyState("成绩尚未发布", "教师完成所有评分并发布后，你可以在这里查看本团队成绩。", "grade");
   if (!p.gradebook.length) return emptyState("暂无可显示的成绩", "当前项目还没有形成成绩记录。", "grade");
   const actions = (user.role === "teacher"
-    ? (p.grades_published ? '<button class="button ghost" type="button" data-action="export">' + icon("download") + '<span>导出 Excel</span></button><button class="button danger" type="button" data-action="unpublish-grades">撤回发布</button>' : '<button class="button" type="button" data-action="publish-grades">' + icon("send") + "<span>发布成绩</span></button>")
-    : user.role === "assistant" ? '<span class="tag gray">可录入过程分</span>' : '<span class="tag green">已发布</span>');
+    ? (p.grades_published ? '<button class="button ghost" type="button" data-action="export">' + icon("download") + '<span>导出 Excel</span></button><button class="button ghost" type="button" data-action="export-pdf">' + icon("download") + '<span>导出 PDF</span></button><button class="button danger" type="button" data-action="unpublish-grades">撤回发布</button>' : '<button class="button" type="button" data-action="publish-grades">' + icon("send") + "<span>发布成绩</span></button>")
+    : user.role === "admin" ? (p.grades_published ? '<button class="button ghost" type="button" data-action="export">' + icon("download") + '<span>导出 Excel</span></button><button class="button ghost" type="button" data-action="export-pdf">' + icon("download") + '<span>导出 PDF</span></button><button class="button danger" type="button" data-action="unpublish-grades">撤回发布</button>' : '<span class="tag amber">等待教师发布</span>')
+    : user.role === "assistant" ? '<span class="tag gray">可录入过程分</span>'
+    : '<button class="button ghost" type="button" data-action="new-appeal">申请成绩复核</button>');
   const formula = '总分 = 互评 × ' + Number(p.peer_weight) * 100 + '% + 过程分 × ' + Number(p.process_weight) * 100 + '% + 终评 × ' + Number(p.final_weight) * 100 + '%';
   const personal = user.role === "teacher" ? individualGradesPanel(p.gradebook, p.grades_published) : "";
   return '<section class="card spaced"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("grade") + '</span><div><h2>成绩汇总</h2><p class="subtle">' + (user.role === "student" ? "仅展示本人允许查看的成绩字段" : formula) + '</p></div></div><div class="card-actions">' + actions + "</div></div>" + gradeTable(p.gradebook) + "</section>"
-    + (user.role === "student" ? "" : '<section class="card spaced"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("award") + '</span><div><h2>团队成绩构成</h2><p class="subtle">查看各评分环节占比并完成待录入项</p></div></div></div><div class="grade-team-grid">' + p.gradebook.map((item) => gradeTeamCard(item, user)).join("") + "</div></section>") + personal;
+    + (user.role === "student" ? "" : '<section class="card spaced"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("award") + '</span><div><h2>团队成绩构成</h2><p class="subtle">查看各评分环节占比并完成待录入项</p></div></div></div><div class="grade-team-grid">' + p.gradebook.map((item) => gradeTeamCard(item, user)).join("") + "</div></section>") + personal + gradeAppealPanel() + (user.role === "assistant" ? reviewAlertsPanel() : "");
+}
+
+function gradeAppealPanel() {
+  const appeals = state.data.grade_appeals || [];
+  if (!appeals.length) return "";
+  const canResolve = ["teacher", "admin"].includes(state.data.current_user.role);
+  return '<section class="card spaced"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("info") + '</span><div><h2>成绩复核记录</h2><p class="subtle">申请、处理结论和操作者全程留痕</p></div></div></div><div class="audit-list">' + appeals.map((item) => '<article class="audit-item"><span class="audit-marker">' + icon("info") + '</span><div class="audit-copy"><strong>' + esc(item.user_name) + ' · ' + ({ pending: "待处理", approved: "复核通过", rejected: "维持原成绩" }[item.status] || item.status) + '</strong><span>申请理由：' + esc(item.reason) + (item.result ? ' · 处理结论：' + esc(item.result) : '') + '</span></div>' + (canResolve && item.status === "pending" ? '<button class="button secondary small" data-action="resolve-appeal" data-id="' + item.id + '">处理</button>' : '<span class="tag ' + (item.status === "pending" ? "amber" : "green") + '">' + ({ pending: "待处理", approved: "已通过", rejected: "已驳回" }[item.status] || item.status) + '</span>') + '</article>').join("") + '</div></section>';
 }
 function individualGradesPanel(items, locked) {
   const people = items.flatMap((team) => (team.individuals || []).map((person) => ({ ...person, team_name: team.team_name })));
@@ -535,7 +591,8 @@ function gradeTeamCard(item, user) {
 
 function logsPage() {
   const logs = state.data.logs || [];
-  return '<section class="card"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("log") + '</span><div><h2>过程审计日志</h2><p class="subtle">发布、组队、提交、互评和评分等关键操作均留痕</p></div></div><span class="tag">' + logs.length + ' 条记录</span></div>'
+  const adminActions = state.data.current_user.role === "admin" ? '<div class="card-actions"><button class="button ghost small" data-action="verify-audit">校验审计链</button><button class="button secondary small" data-action="backup-database">立即备份</button></div>' : '<span class="tag">' + logs.length + ' 条记录</span>';
+  return '<section class="card"><div class="card-head"><div class="card-title"><span class="section-icon">' + icon("log") + '</span><div><h2>过程审计日志</h2><p class="subtle">关键操作使用 SHA-256 哈希链留痕，可检测异常篡改</p></div></div>' + adminActions + '</div>'
     + (logs.length ? '<div class="audit-list">' + logs.map((item) => {
       const kind = item.action === "score" ? "score-log" : item.action === "export" ? "export-log" : "";
       const markerIcon = item.action === "score" ? "grade" : item.action === "export" ? "download" : item.action === "submit" ? "upload" : "activity";
@@ -606,9 +663,21 @@ function bindActions() {
       const action = button.dataset.action;
       const p = project();
       try {
-        if (action === "new-project") {
-          openModal("发布新项目", "填写基础信息、截止时间和评分权重", formHtml(
+        if (action === "new-course") {
+          openModal("新建课程", "创建课程框架后即可在课程下发布多个项目任务", formHtml(
+            '<div class="field full"><label class="required" for="f-course-name">课程名称</label><input id="f-course-name" placeholder="例如：软件工程"></div>'
+            + '<div class="field full"><label class="required" for="f-course-term">开课学期</label><input id="f-course-term" placeholder="例如：2026 秋"></div>',
+            "创建课程"
+          ));
+          bindModalSubmit(async () => {
+            await api("/api/courses", { method: "POST", body: JSON.stringify({ name: requiredValue("f-course-name", "请输入课程名称"), term: requiredValue("f-course-term", "请输入开课学期") }) });
+            closeModal(); toast("课程创建成功"); await load({ quiet: true });
+          });
+        } else if (action === "new-project") {
+          const courseOptions = state.data.courses.map((course) => '<option value="' + course.id + '">' + esc(course.name) + ' · ' + esc(course.term) + '</option>').join("");
+          openModal("新建项目", "可保存草稿，确认后再向学生发布", formHtml(
             '<div class="form-section-title">项目基本信息</div>'
+            + '<div class="field full"><label class="required" for="f-course">所属课程</label><select id="f-course">' + courseOptions + '</select></div>'
             + '<div class="field full"><label class="required" for="f-title">项目名称</label><input id="f-title" value="课程项目" required><span class="field-error">请输入项目名称</span></div>'
             + '<div class="field full"><label class="required" for="f-description">项目说明</label><textarea id="f-description" required>完成项目迭代与评审闭环</textarea><span class="field-error">请输入项目说明</span></div>'
             + '<div class="form-divider"></div><div class="form-section-title">时间安排</div>'
@@ -621,8 +690,9 @@ function bindActions() {
             + '<div class="field"><label for="f-peer">互评权重</label><input id="f-peer" type="number" min="0" max="100" value="25"><span class="field-help">建议值 25%</span></div>'
             + '<div class="field"><label for="f-process">过程分权重</label><input id="f-process" type="number" min="0" max="100" value="25"><span class="field-help">建议值 25%</span></div>'
             + '<div class="field"><label for="f-final">终评权重</label><input id="f-final" type="number" min="0" max="100" value="50"><span class="field-help">建议值 50%</span></div>',
-            "确认发布"
+            "保存项目"
           ));
+          document.querySelector(".form-grid").insertAdjacentHTML("beforeend", '<div class="field full"><label><input id="f-save-draft" type="checkbox"> 先保存为草稿，暂不通知学生</label></div>');
           bindModalSubmit(async () => {
             const payload = {
               title: requiredValue("f-title", "请输入项目名称"),
@@ -633,13 +703,29 @@ function bindActions() {
               peer_weight: Number(value("f-peer")),
               process_weight: Number(value("f-process")),
               final_weight: Number(value("f-final")),
-              course_id: state.data.courses?.[0]?.id,
+              course_id: Number(value("f-course")),
+              save_as_draft: document.querySelector("#f-save-draft").checked,
               iterations: [{ name: "迭代 1", deadline: requiredValue("f-iteration-deadline", "请选择迭代截止时间"), requirements: requiredValue("f-requirements", "请输入迭代要求") }],
             };
             if (payload.peer_weight + payload.process_weight + payload.final_weight !== 100) throw new Error("三项评分权重必须合计 100%");
             await api("/api/projects", { method: "POST", body: JSON.stringify(payload) });
-            closeModal(); toast("项目发布成功"); await load({ quiet: true });
+            closeModal(); toast(payload.save_as_draft ? "项目草稿已保存" : "项目发布成功"); await load({ quiet: true });
           });
+        } else if (action === "add-iteration") {
+          openModal("新增迭代阶段", "每个迭代具有独立截止时间和提交要求", formHtml(
+            '<div class="field full"><label class="required" for="f-name">迭代名称</label><input id="f-name" placeholder="例如：迭代 2：设计与实现"></div>'
+            + '<div class="field full"><label class="required" for="f-deadline">截止时间</label><input id="f-deadline" type="datetime-local"></div>'
+            + '<div class="field full"><label class="required" for="f-requirements">提交要求</label><textarea id="f-requirements" placeholder="说明本轮需要提交的成果"></textarea></div>',
+            "新增迭代"
+          ));
+          bindModalSubmit(async () => {
+            await api("/api/projects/" + button.dataset.id + "/iterations", { method: "POST", body: JSON.stringify({ name: requiredValue("f-name", "请输入迭代名称"), deadline: requiredValue("f-deadline", "请选择截止时间"), requirements: requiredValue("f-requirements", "请输入提交要求") }) });
+            closeModal(); toast("迭代已添加"); await load({ quiet: true });
+          });
+        } else if (action === "publish-project") {
+          if (!window.confirm("发布后课程成员将收到通知，确认发布该项目吗？")) return;
+          await api("/api/projects/" + button.dataset.id + "/publish", { method: "POST" });
+          toast("项目发布成功"); await load({ quiet: true });
         } else if (action === "edit-weights") {
           openModal("修改评分权重", "三项权重合计必须为 100%", formHtml(
             '<div class="field"><label for="f-peer">互评权重 (%)</label><input id="f-peer" type="number" min="0" max="100" value="' + Math.round(p.peer_weight * 100) + '"><span class="field-error">0-100</span></div>'
@@ -666,10 +752,44 @@ function bindActions() {
             await api("/api/teams", { method: "POST", body: JSON.stringify({ project_id: p.id, name: requiredValue("f-team-name", "请输入团队名称") }) });
             closeModal(); toast("团队创建成功"); await load({ quiet: true });
           });
+        } else if (action === "decide-join") {
+          await api("/api/team-join-requests/" + button.dataset.id + "/decision", { method: "POST", body: JSON.stringify({ decision: button.dataset.decision }) });
+          toast("入队申请已处理"); await load({ quiet: true });
+        } else if (action === "adjust-member") {
+          const studentOptions = (state.data.users || []).filter((item) => item.role === "student").map((student) => '<option value="' + student.id + '">' + esc(student.name) + ' · ' + esc(student.id) + '</option>').join("");
+          openModal("例外调整 · " + button.dataset.name, "教师或教务管理员的成员调整必须填写原因并留痕", formHtml(
+            '<div class="field"><label class="required" for="f-member-action">调整动作</label><select id="f-member-action"><option value="add">加入团队</option><option value="remove">移出团队</option></select></div>'
+            + '<div class="field"><label class="required" for="f-member-user">学生</label><select id="f-member-user">' + studentOptions + '</select></div>'
+            + '<div class="field full"><label class="required" for="f-member-reason">调整理由</label><textarea id="f-member-reason" placeholder="例如：经任课教师批准的特殊换组"></textarea></div>',
+            "确认调整"
+          ));
+          bindModalSubmit(async () => {
+            await api("/api/teams/" + button.dataset.id + "/members/adjust", { method: "POST", body: JSON.stringify({ action: value("f-member-action"), user_id: value("f-member-user"), reason: requiredValue("f-member-reason", "请填写调整理由") }) });
+            closeModal(); toast("团队成员已调整并留痕"); await load({ quiet: true });
+          });
+        } else if (action === "new-member-task") {
+          const team = state.data.teams.find((item) => item.id === state.data.my_team?.id);
+          const memberOptions = (team?.member_details || []).map((member) => '<option value="' + member.id + '">' + esc(member.name) + (member.is_leader ? " · 组长" : "") + '</option>').join("");
+          const iterationOptions = (p.iterations || []).map((iteration) => '<option value="' + iteration.id + '">' + esc(iteration.name) + '</option>').join("");
+          openModal("分配成员任务", "明确负责人、迭代节点和交付时间", formHtml(
+            '<div class="field"><label class="required" for="f-iteration">所属迭代</label><select id="f-iteration">' + iterationOptions + '</select></div>'
+            + '<div class="field"><label class="required" for="f-assignee">负责人</label><select id="f-assignee">' + memberOptions + '</select></div>'
+            + '<div class="field full"><label class="required" for="f-task-title">任务名称</label><input id="f-task-title" placeholder="例如：完成接口测试"></div>'
+            + '<div class="field full"><label class="required" for="f-task-description">任务说明</label><textarea id="f-task-description" placeholder="说明交付内容和验收标准"></textarea></div>'
+            + '<div class="field full"><label class="required" for="f-task-due">截止时间</label><input id="f-task-due" type="datetime-local"></div>',
+            "分配任务"
+          ));
+          bindModalSubmit(async () => {
+            await api("/api/member-tasks", { method: "POST", body: JSON.stringify({ project_id: p.id, iteration_id: Number(value("f-iteration")), assignee_id: value("f-assignee"), title: requiredValue("f-task-title", "请输入任务名称"), description: requiredValue("f-task-description", "请输入任务说明"), due_at: requiredValue("f-task-due", "请选择截止时间") }) });
+            closeModal(); toast("成员任务已分配"); await load({ quiet: true });
+          });
+        } else if (action === "task-status") {
+          await api("/api/member-tasks/" + button.dataset.id, { method: "PATCH", body: JSON.stringify({ status: button.dataset.status }) });
+          toast("任务状态已更新"); await load({ quiet: true });
         } else if (action === "join-team") {
           if (!window.confirm("确认申请加入这个团队吗？")) return;
           await api("/api/teams/" + button.dataset.id + "/join", { method: "POST" });
-          toast("已加入团队"); await load({ quiet: true });
+          toast("入队申请已提交"); await load({ quiet: true });
         } else if (action === "leave-team") {
           if (!window.confirm("退出后可能由下一名成员自动接任队长，确认继续吗？")) return;
           await api("/api/teams/" + button.dataset.id + "/leave", { method: "POST" });
@@ -689,18 +809,37 @@ function bindActions() {
             if (!file) throw new Error("请选择需要提交的成果文件");
             if (!["pdf", "zip", "mp4"].includes(file.name.split(".").pop().toLowerCase())) throw new Error("仅允许 PDF、ZIP 或 MP4 文件");
             const form = new FormData(); form.append("file", file);
+            const existing = state.data.submissions.find((item) => item.iteration_id === Number(button.dataset.id) && item.team_id === state.data.my_team?.id);
+            if (existing?.lock_version) form.append("lock_version", existing.lock_version);
             await api("/api/submissions/" + button.dataset.id, { method: "POST", body: form });
             closeModal(); toast("成果提交成功，版本记录已更新"); await load({ quiet: true });
+          });
+        } else if (action === "remind-missing") {
+          const result = await api("/api/projects/" + p.id + "/remind-missing", { method: "POST", body: JSON.stringify({ iteration_id: Number(button.dataset.id) }) });
+          toast(result.message); await load({ quiet: true });
+        } else if (action === "process-check") {
+          openModal("过程检查 · " + button.dataset.name, "查收会形成阶段过程分；退回时必须说明修改原因", formHtml(
+            '<div class="field"><label class="required" for="f-check-action">处理动作</label><select id="f-check-action"><option value="received">查收并评分</option><option value="returned">退回修改</option></select></div>'
+            + '<div class="field"><label for="f-check-score">阶段过程分</label><input id="f-check-score" type="number" min="0" max="100" value="85"></div>'
+            + '<div class="field full"><label class="required" for="f-check-comment">检查说明</label><textarea id="f-check-comment" placeholder="记录检查结论、问题或修改要求"></textarea></div>',
+            "保存检查结果"
+          ));
+          bindModalSubmit(async () => {
+            const checkAction = value("f-check-action");
+            const payload = { project_id: p.id, team_id: Number(button.dataset.team), iteration_id: Number(button.dataset.iteration), action: checkAction, comment: requiredValue("f-check-comment", "请填写检查说明") };
+            if (checkAction !== "returned") payload.score = Number(value("f-check-score"));
+            await api("/api/process-checks", { method: "POST", body: JSON.stringify(payload) });
+            closeModal(); toast("过程检查已记录"); await load({ quiet: true });
           });
         } else if (action === "download") {
           const response = await api("/api/submissions/" + button.dataset.id + "/download");
           const blob = await response.blob();
-          const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = "submission"; link.click(); URL.revokeObjectURL(link.href);
+          const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = responseFilename(response, "submission"); link.click(); URL.revokeObjectURL(link.href);
           toast("文件下载已开始");
         } else if (action === "download-review") {
           const response = await api("/api/review-assignments/" + encodeURIComponent(button.dataset.id) + "/download");
           const blob = await response.blob();
-          const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = "anonymous-submission"; link.click(); URL.revokeObjectURL(link.href);
+          const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = responseFilename(response, "anonymous-submission"); link.click(); URL.revokeObjectURL(link.href);
           toast("匿名成果下载已开始");
         } else if (action === "versions") {
           const result = await api("/api/submissions/" + button.dataset.id + "/versions");
@@ -722,21 +861,31 @@ function bindActions() {
         } else if (action === "read-all") {
           await api("/api/notifications/read-all", { method: "POST" }); toast("通知已全部标为已读"); await load({ quiet: true });
         } else if (action === "review") {
-          openModal("评价 " + button.dataset.name, "从完成度、创新性和文档质量综合评分", formHtml(
-            '<div class="field full"><label for="f-score-range">综合评分</label><div class="range-wrap"><input id="f-score-range" type="range" min="0" max="100" value="85"><input id="f-score" type="number" min="0" max="100" value="85" aria-label="综合评分数值"></div><span class="field-help">评分范围 0—100 分</span></div>'
+          openModal("评价 " + button.dataset.name, "三个维度分别评分，系统自动计算平均分", formHtml(
+            '<div class="field"><label for="f-completeness">完成度</label><input id="f-completeness" type="number" min="0" max="100" value="' + button.dataset.completeness + '"></div>'
+            + '<div class="field"><label for="f-innovation">创新性</label><input id="f-innovation" type="number" min="0" max="100" value="' + button.dataset.innovation + '"></div>'
+            + '<div class="field"><label for="f-documentation">文档质量</label><input id="f-documentation" type="number" min="0" max="100" value="' + button.dataset.documentation + '"></div>'
             + '<div class="field full"><label class="required" for="f-comment">评价意见</label><textarea id="f-comment" placeholder="请写出具体优点和一条可执行的改进建议"></textarea><span class="field-error">请填写评价意见</span></div>',
-            "提交评价"
+            "保存互评"
           ));
-          const range = document.querySelector("#f-score-range");
-          const number = document.querySelector("#f-score");
-          range.oninput = () => { number.value = range.value; };
-          number.oninput = () => { range.value = clamp(number.value); };
+          document.querySelector(".form-grid").insertAdjacentHTML("beforeend", '<div class="field full"><label><input id="f-review-draft" type="checkbox"> 仅保存草稿，稍后继续填写</label></div>');
           bindModalSubmit(async () => {
-            const score = clamp(value("f-score"));
-            const comment = requiredValue("f-comment", "请填写评价意见");
-            if (!window.confirm("确认提交 " + score + " 分的互评结果吗？")) return;
-            await api("/api/reviews", { method: "POST", body: JSON.stringify({ project_id: p.id, assignment_id: button.dataset.id, score, comment }) });
-            closeModal(); toast("互评已提交"); await load({ quiet: true });
+            const draft = document.querySelector("#f-review-draft").checked;
+            const completeness = Number(value("f-completeness"));
+            const innovation = Number(value("f-innovation"));
+            const documentation = Number(value("f-documentation"));
+            if ([completeness, innovation, documentation].some((score) => !Number.isFinite(score) || score < 0 || score > 100)) throw new Error("三个维度评分必须在 0—100 之间");
+            const comment = draft ? value("f-comment") : requiredValue("f-comment", "正式提交时请填写评价意见");
+            const average = Math.round(((completeness + innovation + documentation) / 3) * 100) / 100;
+            if (!draft && !window.confirm("三维平均分为 " + average + " 分，确认正式提交吗？")) return;
+            await api("/api/reviews", { method: "POST", body: JSON.stringify({ project_id: p.id, assignment_id: button.dataset.id, completeness_score: completeness, innovation_score: innovation, documentation_score: documentation, comment, status: draft ? "draft" : "submitted" }) });
+            closeModal(); toast(draft ? "互评草稿已保存" : "互评已提交"); await load({ quiet: true });
+          });
+        } else if (action === "resolve-alert") {
+          openModal("处理异常评分预警", "请核查评分分布和评价内容，并记录可审计的复核结论", formHtml('<div class="field full"><label class="required" for="f-resolution">复核结论</label><textarea id="f-resolution" placeholder="例如：评分差异有合理依据，允许计入成绩"></textarea></div>', "确认处理"));
+          bindModalSubmit(async () => {
+            await api("/api/review-alerts/" + button.dataset.id + "/resolve", { method: "POST", body: JSON.stringify({ resolution: requiredValue("f-resolution", "请填写复核结论") }) });
+            closeModal(); toast("预警已处理"); await load({ quiet: true });
           });
         } else if (action === "toggle-review") {
           const verb = p.review_open ? "关闭" : "开启";
@@ -768,6 +917,22 @@ function bindActions() {
             await api("/api/individual-adjustments", { method: "POST", body: JSON.stringify({ project_id: p.id, user_id: button.dataset.id, coefficient, manual_deduction: manualDeduction, reason: requiredValue("f-reason", "请填写调整理由") }) });
             closeModal(); toast("个人成绩核定已保存"); await load({ quiet: true });
           });
+        } else if (action === "new-appeal") {
+          openModal("申请成绩复核", "请说明需要核查的评分环节和事实依据", formHtml('<div class="field full"><label class="required" for="f-reason">复核理由</label><textarea id="f-reason" placeholder="例如：过程检查记录与成绩明细不一致"></textarea></div>', "提交申请"));
+          bindModalSubmit(async () => {
+            await api("/api/grade-appeals", { method: "POST", body: JSON.stringify({ project_id: p.id, reason: requiredValue("f-reason", "请填写复核理由") }) });
+            closeModal(); toast("成绩复核申请已提交"); await load({ quiet: true });
+          });
+        } else if (action === "resolve-appeal") {
+          openModal("处理成绩复核", "处理结论会通知学生并写入审计日志", formHtml(
+            '<div class="field"><label class="required" for="f-decision">处理结果</label><select id="f-decision"><option value="approved">复核通过</option><option value="rejected">维持原成绩</option></select></div>'
+            + '<div class="field full"><label class="required" for="f-result">复核结论</label><textarea id="f-result" placeholder="记录核查依据和处理结果"></textarea></div>',
+            "完成处理"
+          ));
+          bindModalSubmit(async () => {
+            await api("/api/grade-appeals/" + button.dataset.id + "/resolve", { method: "POST", body: JSON.stringify({ decision: value("f-decision"), result: requiredValue("f-result", "请填写复核结论") }) });
+            closeModal(); toast("成绩复核已处理"); await load({ quiet: true });
+          });
         } else if (action === "publish-grades") {
           if (!window.confirm("发布后学生将收到成绩通知，确认继续吗？")) return;
           await api("/api/projects/" + p.id + "/publish-grades", { method: "POST" });
@@ -781,6 +946,16 @@ function bindActions() {
         } else if (action === "export") {
           const response = await api("/api/projects/" + p.id + "/grades.xlsx");
           const blob = await response.blob(); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = "project-" + p.id + "-grades.xlsx"; link.click(); URL.revokeObjectURL(link.href); toast("Excel 成绩归档已导出");
+        } else if (action === "export-pdf") {
+          const response = await api("/api/projects/" + p.id + "/grades.pdf");
+          const blob = await response.blob(); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = responseFilename(response, "project-" + p.id + "-grades.pdf"); link.click(); URL.revokeObjectURL(link.href); toast("PDF 成绩归档已导出");
+        } else if (action === "verify-audit") {
+          const result = await api("/api/audit/verify");
+          toast(result.message, !result.valid);
+        } else if (action === "backup-database") {
+          if (!window.confirm("确认立即创建数据库全量备份吗？")) return;
+          const result = await api("/api/admin/backup", { method: "POST" });
+          toast(result.message + " · " + result.file);
         }
       } catch (error) {
         if (error.status === 401) await showLogin("登录状态已失效，请重新登录"); else toast(error.message, true);

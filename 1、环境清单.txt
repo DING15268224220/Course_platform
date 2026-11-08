@@ -1,6 +1,6 @@
 1、环境清单
 
-系统名称：高校课程项目协作与评审平台 V3.1
+系统名称：高校课程项目协作与评审平台 V4.0
 目标平台：Windows 10 / Windows 11，64 位
 
 一、网页版必需环境
@@ -11,6 +11,7 @@
    Flask==3.0.3
    waitress==3.0.2
    openpyxl==3.1.5
+   reportlab>=4.2,<6
 4. 安装命令：
    python -m pip install -r backend\requirements.txt
 5. 默认访问地址：
