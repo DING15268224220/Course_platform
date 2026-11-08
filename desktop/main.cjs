@@ -24,10 +24,11 @@ function findPython() {
     process.env.PLATFORM_PYTHON,
     "D:\\Anaconda\\python.exe",
     "python",
+    "py",
   ].filter(Boolean);
 
   for (const candidate of candidates) {
-    if (candidate === "python" || fs.existsSync(candidate)) return candidate;
+    if (candidate === "python" || candidate === "py" || fs.existsSync(candidate)) return candidate;
   }
   return null;
 }
@@ -40,7 +41,10 @@ function backendCommand() {
 
   const python = findPython();
   if (!python) throw new Error("未找到 Python。请安装依赖或设置 PLATFORM_PYTHON 环境变量。");
-  return { executable: python, args: [path.join(backendDir(), "app.py")], cwd: backendDir() };
+  const args = python === "py"
+    ? ["-3", path.join(backendDir(), "app.py")]
+    : [path.join(backendDir(), "app.py")];
+  return { executable: python, args, cwd: backendDir() };
 }
 
 function findAvailablePort(preferred = 5055) {
@@ -62,7 +66,7 @@ function findAvailablePort(preferred = 5055) {
 
 function startBackend() {
   const command = backendCommand();
-  if (!fs.existsSync(command.executable) && command.executable !== "python") {
+  if (!fs.existsSync(command.executable) && !["python", "py"].includes(command.executable)) {
     throw new Error(`后端程序不存在：${command.executable}`);
   }
 

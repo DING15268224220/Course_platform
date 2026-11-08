@@ -6,28 +6,57 @@
   <meta name="theme-color" content="#17243b">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>课程项目协作与评审平台</title>
-  <link rel="stylesheet" href="/static/style.css?v=2.1.0">
+  <link rel="stylesheet" href="/static/style.css?v=3.1.0">
 </head>
 <body>
   <a class="skip-link" href="#content">跳到主要内容</a>
   <section class="login-screen" id="login-screen" aria-labelledby="login-title">
-    <div class="login-card">
-      <div class="login-brand">
-        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5.5 12 2l8 3.5v6c0 4.9-3.3 8.7-8 10.5-4.7-1.8-8-5.6-8-10.5v-6Z"/><path d="m8.5 11 2.2 2.2 4.8-5"/></svg></span>
-        <div><strong>高校课程项目协作与评审平台</strong><span>COURSE PROJECT REVIEW HUB</span></div>
-      </div>
-      <div class="login-copy"><span class="eyebrow">欢迎回来</span><h1 id="login-title">登录课程工作台</h1><p>请选择演示身份并输入密码，系统会根据角色加载对应的项目、团队和成绩信息。</p></div>
-      <form id="login-form" class="login-form">
-        <label for="login-user">演示账号</label>
-        <select id="login-user" required aria-describedby="login-hint"></select>
-        <label for="login-password">密码</label>
-        <input id="login-password" type="password" autocomplete="current-password" value="123456" required>
-        <p id="login-hint" class="field-help">演示账号统一密码：123456</p>
-        <button class="button login-button" id="login-submit" type="submit">进入工作台</button>
-        <p class="login-error" id="login-error" role="alert" hidden></p>
-      </form>
+    <div class="login-aside" aria-hidden="true">
+      <div class="login-aside-shell">
+        <div class="login-hero-copy">
+          <h2>让每一次协作都有迹可循</h2>
+          <p>从组队、迭代提交到匿名互评与成绩发布，构建完整、可信、可追溯的课程项目闭环。</p>
+          <div class="login-feature-chips" aria-label="平台特点">
+            <span><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg>过程可追踪</span>
+            <span><svg viewBox="0 0 24 24"><path d="M12 3v18M5 7h14M7 7l-3 7h6L7 7Zm10 0-3 7h6l-3-7Z"/></svg>评价更公平</span>
+            <span><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.3 2.8 7.6 7 9 4.2-1.4 7-4.7 7-9V6l-7-3Z"/><path d="m9 12 2 2 4-5"/></svg>成绩可复核</span>
+          </div>
+        </div>
+        <div class="login-workflow" aria-label="课程项目协作闭环">
+          <span class="workflow-ring" aria-hidden="true"></span>
+          <div class="workflow-center">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-5 9 5-9 5-9-5Z"/><path d="M7 12.5V17c3 2 7 2 10 0v-4.5M21 10v6"/></svg>
+            <strong>课程项目闭环</strong><span>协作 · 评审 · 追踪</span>
+          </div>
+          <article class="workflow-card workflow-teacher"><span class="workflow-icon"><svg viewBox="0 0 24 24"><path d="M4 19h16M7 16V8l5-3 5 3v8M10 16v-4h4v4"/></svg></span><div><strong>教师发布项目</strong><span>设置要求与迭代任务</span></div></article>
+          <article class="workflow-card workflow-team"><span class="workflow-icon"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2"/><path d="M3 19c.4-4 2.4-6 6-6s5.6 2 6 6M15 14c3 0 4.7 1.7 5 5"/></svg></span><div><strong>学生团队协作</strong><span>分工协作与进度同步</span></div></article>
+          <article class="workflow-card workflow-submit"><span class="workflow-icon"><svg viewBox="0 0 24 24"><path d="M5 3h10l4 4v14H5V3Z"/><path d="M15 3v5h5M12 17V10M9 13l3-3 3 3"/></svg></span><div><strong>提交项目成果</strong><span>上传文档、代码与报告</span></div></article>
+          <article class="workflow-card workflow-assistant"><span class="workflow-icon"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5z"/><path d="m8 9 2 2 4-4M8 15h8"/></svg></span><div><strong>助教检查进度</strong><span>查看提交记录与过程</span></div></article>
+          <article class="workflow-card workflow-review"><span class="workflow-icon"><svg viewBox="0 0 24 24"><path d="M4 7h16v10H8l-4 3V7Z"/><path d="M9 12h.01M12 12h.01M15 12h.01"/></svg></span><div><strong>匿名同伴互评</strong><span>盲盒分配与公平评价</span></div></article>
+          <article class="workflow-card workflow-grade"><span class="workflow-icon"><svg viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></svg></span><div><strong>成绩发布与报告</strong><span>汇总评价并生成成绩</span></div></article>
+        </div>
     </div>
-    <div class="login-aside" aria-hidden="true"><span class="login-orbit one"></span><span class="login-orbit two"></span><div><strong>让课程项目过程可见</strong><span>从组队、迭代提交到互评与成绩发布，形成完整可追溯的教学闭环。</span></div></div>
+    </div>
+    <div class="login-panel">
+      <a class="login-help" href="#login-form">帮助</a>
+      <div class="login-card">
+        <div class="login-brand">
+          <span class="login-logo" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 3 5 7v8c0 7 4.5 11.7 11 14 6.5-2.3 11-7 11-14V7L16 3Z"/><path d="M10 12c2-1 4-.8 6 1 2-1.8 4-2 6-1v8c-2-1-4-.8-6 1-2-1.8-4-2-6-1v-8Z"/><path d="M16 13v8"/></svg></span>
+          <div><strong>高校课程项目协作与评审平台</strong><span>Course Project Review Hub</span></div>
+        </div>
+        <div class="login-copy"><h1 id="login-title">欢迎回到课程工作台</h1><p>选择演示身份，进入对应的课程项目空间。</p></div>
+        <form id="login-form" class="login-form">
+          <label for="login-user">演示身份</label>
+          <div class="login-control"><span class="login-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3"/><path d="M5 20c.5-5 2.8-7 7-7s6.5 2 7 7"/></svg></span><select id="login-user" required aria-describedby="login-hint"></select></div>
+          <label for="login-password">登录密码</label>
+          <div class="login-control"><span class="login-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span><input id="login-password" type="password" autocomplete="current-password" value="123456" required><button class="password-toggle" id="login-password-toggle" type="button" aria-label="显示密码" title="显示密码"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg></button></div>
+          <p id="login-hint" class="field-help">演示账号统一密码：123456</p>
+          <button class="button login-button" id="login-submit" type="submit">进入工作台</button>
+          <p class="login-error" id="login-error" role="alert" hidden></p>
+        </form>
+        <p class="login-security"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.3 2.8 7.6 7 9 4.2-1.4 7-4.7 7-9V6l-7-3Z"/><path d="m9 12 2 2 4-5"/></svg>登录即表示你将按照当前身份权限访问课程数据</p>
+      </div>
+    </div>
   </section>
 
   <div class="app-shell" id="app-shell" hidden>
@@ -47,8 +76,8 @@
       </div>
       <nav id="nav" aria-label="功能导航"></nav>
       <div class="sidebar-footer">
-        <div class="system-state"><span class="status-dot"></span><div><strong id="service-state">服务运行正常</strong><span>本地安全环境</span></div></div>
-        <span class="version">Desktop · v2.0</span>
+        <div class="system-state"><span class="status-dot"></span><div><strong id="service-state">系统运行正常</strong><span>安全连接</span></div></div>
+        <span class="version">V3.0 · EDUCATION SaaS</span>
       </div>
     </aside>
 
@@ -60,6 +89,9 @@
           <p id="page-description">掌握课程项目、团队协作与评审进展</p>
         </div>
         <div class="top-actions">
+          <button class="icon-button top-notification" type="button" title="通知中心" aria-label="通知中心" data-page="overview">
+            <svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg><i></i>
+          </button>
           <button class="icon-button" id="refresh-btn" type="button" title="刷新数据" aria-label="刷新数据">
             <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
           </button>
@@ -93,7 +125,7 @@
       <div id="modal-body"></div>
     </form>
   </dialog>
-  <script src="/static/app.js?v=2.1.0"></script>
+  <script src="/static/app.js?v=3.1.0"></script>
 </body>
 </html>
 

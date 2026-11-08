@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import mimetypes
@@ -13,6 +14,8 @@ from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, Response, g, jsonify, render_template, request, send_file, session
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
@@ -216,6 +219,21 @@ def ensure_column(db: sqlite3.Connection, table: str, name: str, definition: str
         db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
 
 
+def active_publication(project_id: int):
+    return row(
+        "SELECT * FROM grade_publications WHERE project_id=? AND active=1 ORDER BY version DESC,id DESC LIMIT 1",
+        (project_id,),
+    )
+
+
+def ensure_project_writable(project_id: int):
+    project = row("SELECT grades_published FROM projects WHERE id=?", (project_id,))
+    if not project:
+        raise APIError("项目不存在", 404)
+    if project["grades_published"]:
+        raise APIError("成绩已发布，项目已进入只读归档状态", 403)
+
+
 def init_db():
     db = get_db()
     db.executescript(
@@ -361,6 +379,42 @@ def init_db():
             published_at TEXT NOT NULL,
             version INTEGER NOT NULL DEFAULT 1
         );
+        CREATE TABLE IF NOT EXISTS individual_grade_adjustments (
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL REFERENCES users(id),
+            coefficient REAL NOT NULL DEFAULT 1.0,
+            manual_deduction REAL NOT NULL DEFAULT 0,
+            reason TEXT NOT NULL,
+            updated_by TEXT NOT NULL REFERENCES users(id),
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(project_id,user_id)
+        );
+        CREATE TABLE IF NOT EXISTS team_grade_snapshots (
+            publication_id INTEGER NOT NULL REFERENCES grade_publications(id) ON DELETE CASCADE,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            team_id INTEGER NOT NULL REFERENCES teams(id),
+            team_name TEXT NOT NULL,
+            peer_score REAL NOT NULL,
+            peer_count INTEGER NOT NULL,
+            process_score REAL NOT NULL,
+            final_score REAL NOT NULL,
+            total REAL NOT NULL,
+            PRIMARY KEY(publication_id,team_id)
+        );
+        CREATE TABLE IF NOT EXISTS individual_grade_snapshots (
+            publication_id INTEGER NOT NULL REFERENCES grade_publications(id) ON DELETE CASCADE,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            team_id INTEGER NOT NULL REFERENCES teams(id),
+            user_id TEXT NOT NULL REFERENCES users(id),
+            user_name TEXT NOT NULL,
+            peer_score REAL NOT NULL,
+            coefficient REAL NOT NULL,
+            manual_deduction REAL NOT NULL,
+            missing_review_penalty REAL NOT NULL,
+            final_score REAL NOT NULL,
+            PRIMARY KEY(publication_id,user_id)
+        );
         """
     )
     ensure_column(db, "users", "password_hash", "TEXT")
@@ -371,12 +425,26 @@ def init_db():
     ensure_column(db, "notifications", "kind", "TEXT NOT NULL DEFAULT 'info'")
     ensure_column(db, "notifications", "target_page", "TEXT NOT NULL DEFAULT 'overview'")
     ensure_column(db, "audit_logs", "project_id", "INTEGER")
+    ensure_column(db, "review_assignments", "assignment_key", "TEXT")
+    ensure_column(db, "grade_publications", "active", "INTEGER NOT NULL DEFAULT 1")
+    ensure_column(db, "grade_publications", "withdrawn_at", "TEXT")
+    ensure_column(db, "grade_publications", "withdrawn_by", "TEXT")
+    ensure_column(db, "grade_publications", "withdrawal_reason", "TEXT")
+    for assignment in db.execute(
+        "SELECT project_id,reviewer_id,target_team_id FROM review_assignments WHERE assignment_key IS NULL OR assignment_key=''"
+    ).fetchall():
+        db.execute(
+            "UPDATE review_assignments SET assignment_key=? WHERE project_id=? AND reviewer_id=? AND target_team_id=?",
+            (uuid.uuid4().hex, assignment["project_id"], assignment["reviewer_id"], assignment["target_team_id"]),
+        )
     db.executescript(
         """
         CREATE INDEX IF NOT EXISTS idx_teams_project ON teams(project_id);
         CREATE INDEX IF NOT EXISTS idx_submissions_iteration ON submissions(iteration_id);
         CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id,is_read);
         CREATE INDEX IF NOT EXISTS idx_logs_project ON audit_logs(project_id,created_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_review_assignment_key ON review_assignments(assignment_key);
+        CREATE INDEX IF NOT EXISTS idx_grade_publications_active ON grade_publications(project_id,active,version);
         """
     )
     if not db.execute("SELECT 1 FROM users LIMIT 1").fetchone():
@@ -509,35 +577,26 @@ def seed_demo_data(db: sqlite3.Connection):
         )
         student_ids = [f"s{index}" for index in range(1, 13)]
     
-    # 遍历每一个学生，给他们分配 3 个其他团队的任务并预设分值
+    score_offsets = (-2, 0, 2)
     for student_id in student_ids:
-        # 找到这个学生自己的团队索引
         own_team_index = -1
         for i, (_, members, _, _, _) in enumerate(team_specs):
             if student_id in members:
                 own_team_index = i
                 break
-        
-        # 找到其他 3 个团队
         other_team_indices = [i for i in range(len(team_specs)) if i != own_team_index]
-        
-        # 给该学生分配 3 个任务
-        for target_index in other_team_indices:
+        for task_index, target_index in enumerate(other_team_indices):
             target_team_id = team_ids[target_index]
             target_team_name = team_specs[target_index][0]
-            
-            # 预设分值：使用该团队原本的基准分，随机浮动 -3 到 +3 分，让数据更真实
-            import random
             base_score = team_specs[target_index][2]
-            score = base_score + random.randint(-3, 3)
+            score = base_score + score_offsets[(int(student_id[1:]) + task_index) % len(score_offsets)]
             score = max(0, min(100, score))
-            
-            # 写入互评分配表
             db.execute(
-                "INSERT INTO review_assignments(project_id,reviewer_id,target_team_id,status,created_at,completed_at) VALUES(?,?,?,'completed',?,?)",
-                (project_id, student_id, target_team_id, now_iso(), now_iso())
+                """INSERT INTO review_assignments(
+                       project_id,reviewer_id,target_team_id,status,created_at,completed_at,assignment_key
+                   ) VALUES(?,?,?,'completed',?,?,?)""",
+                (project_id, student_id, target_team_id, now_iso(), now_iso(), uuid.uuid4().hex),
             )
-            # 写入互评分数表
             db.execute(
                 "INSERT INTO peer_reviews(project_id,reviewer_id,target_team_id,score,comment,created_at) VALUES(?,?,?,?,?,?)",
                 (project_id, student_id, target_team_id, score, f"评价 {target_team_name} 的成果，完成度不错，建议继续细化。", now_iso()),
@@ -552,24 +611,21 @@ def seed_demo_data(db: sqlite3.Connection):
     audit("t1", "publish", "project", str(project_id), "发布演示项目并设置默认权重 25%/25%/50%")
 
 
-def gradebook(project_id: int):
+def live_gradebook(project_id: int):
     project = row("SELECT * FROM projects WHERE id=?", (project_id,))
     if not project:
         return []
     teams = rows("SELECT * FROM teams WHERE project_id=? ORDER BY id", (project_id,))
     result = []
     for team in teams:
-        # 【修改部分】获取该团队所有互评分数
         peer_rows = rows("SELECT score FROM peer_reviews WHERE project_id=? AND target_team_id=? ORDER BY score ASC", (project_id, team["id"]))
         scores = [r["score"] for r in peer_rows]
         count = len(scores)
-        
-        # 剔除最高最低分
         if count >= 3:
             valid_scores = scores[1:-1]
-            peer_score = round(sum(valid_scores) / len(valid_scores), 2)
-        elif count > 0:
-            peer_score = round(sum(scores) / count, 2)
+            peer_score = round(sum(valid_scores) / len(valid_scores), 1)
+        elif count == 2:
+            peer_score = round(sum(scores) / count, 1)
         else:
             peer_score = None
 
@@ -586,6 +642,41 @@ def gradebook(project_id: int):
                 + final_score * project["final_weight"],
                 2,
             )
+        members = rows(
+            """SELECT u.id AS user_id,u.name AS user_name FROM team_members tm
+               JOIN users u ON u.id=tm.user_id WHERE tm.team_id=? ORDER BY u.id""",
+            (team["id"],),
+        )
+        individuals = []
+        for member in members:
+            adjustment = row(
+                """SELECT coefficient,manual_deduction,reason FROM individual_grade_adjustments
+                   WHERE project_id=? AND user_id=?""",
+                (project_id, member["user_id"]),
+            ) or {"coefficient": 1.0, "manual_deduction": 0.0, "reason": "默认规则"}
+            assignment_counts = row(
+                """SELECT COUNT(*) AS assigned,
+                          SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed
+                   FROM review_assignments WHERE project_id=? AND reviewer_id=?""",
+                (project_id, member["user_id"]),
+            )
+            assigned = int(assignment_counts["assigned"] or 0)
+            completed = int(assignment_counts["completed"] or 0)
+            missing_penalty = 10.0 if assigned > completed else 0.0
+            manual_deduction = float(adjustment["manual_deduction"])
+            coefficient = float(adjustment["coefficient"])
+            individual_score = None if total is None else round(max(0, min(100, total * coefficient - manual_deduction - missing_penalty)), 2)
+            individuals.append(
+                {
+                    **member,
+                    "coefficient": coefficient,
+                    "manual_deduction": manual_deduction,
+                    "missing_review_penalty": missing_penalty,
+                    "deduction": manual_deduction + missing_penalty,
+                    "individual_score": individual_score,
+                    "adjustment_reason": adjustment["reason"],
+                }
+            )
         result.append(
             {
                 "team_id": team["id"],
@@ -595,9 +686,29 @@ def gradebook(project_id: int):
                 "process_score": process_score,
                 "final_score": final_score,
                 "total": total,
+                "individuals": individuals,
             }
         )
     return result
+
+
+def gradebook(project_id: int):
+    publication = active_publication(project_id)
+    if not publication:
+        return live_gradebook(project_id)
+    teams = rows(
+        """SELECT team_id,team_name,peer_score,peer_count,process_score,final_score,total
+           FROM team_grade_snapshots WHERE publication_id=? ORDER BY team_id""",
+        (publication["id"],),
+    )
+    for team in teams:
+        team["individuals"] = rows(
+            """SELECT user_id,user_name,coefficient,manual_deduction,missing_review_penalty,
+                      (manual_deduction+missing_review_penalty) AS deduction,final_score AS individual_score
+               FROM individual_grade_snapshots WHERE publication_id=? AND team_id=? ORDER BY user_id""",
+            (publication["id"], team["team_id"]),
+        )
+    return teams
 
 
 @app.route("/")
@@ -693,18 +804,29 @@ def bootstrap():
     teams, submissions, my_team, review_targets, visible_logs = [], [], None, [], []
     if active:
         active_id = active["id"]
-        teams = rows(
-            """SELECT t.*,GROUP_CONCAT(u.name,'、') AS members,COUNT(tm.user_id) AS member_count,
-               MAX(CASE WHEN tm.is_leader=1 THEN u.name END) AS leader_name
-               FROM teams t LEFT JOIN team_members tm ON tm.team_id=t.id LEFT JOIN users u ON u.id=tm.user_id
-               WHERE t.project_id=? GROUP BY t.id ORDER BY t.id""",
-            (active_id,),
-        )
         my_team = row(
             """SELECT t.*,tm.is_leader FROM teams t JOIN team_members tm ON tm.team_id=t.id
                WHERE t.project_id=? AND tm.user_id=?""",
             (active_id, user["id"]),
         )
+        if user["role"] in ("teacher", "assistant") or my_team:
+            team_scope = "" if user["role"] in ("teacher", "assistant") else " AND t.id=?"
+            team_params = (active_id,) if not team_scope else (active_id, my_team["id"])
+            teams = rows(
+                f"""SELECT t.*,GROUP_CONCAT(u.name,'、') AS members,COUNT(tm.user_id) AS member_count,
+                    MAX(CASE WHEN tm.is_leader=1 THEN u.name END) AS leader_name
+                    FROM teams t LEFT JOIN team_members tm ON tm.team_id=t.id LEFT JOIN users u ON u.id=tm.user_id
+                    WHERE t.project_id=?{team_scope} GROUP BY t.id ORDER BY t.id""",
+                team_params,
+            )
+        elif user["role"] == "student" and not active["grades_published"]:
+            teams = rows(
+                """SELECT t.id,t.project_id,t.name,t.status,t.created_at,'' AS members,
+                          COUNT(tm.user_id) AS member_count,'成员信息加入后可见' AS leader_name
+                   FROM teams t LEFT JOIN team_members tm ON tm.team_id=t.id
+                   WHERE t.project_id=? GROUP BY t.id ORDER BY t.id""",
+                (active_id,),
+            )
         if user["role"] in ("teacher", "assistant"):
             submissions = rows(
                 """SELECT s.*,t.name AS team_name,i.name AS iteration_name,i.deadline,
@@ -722,21 +844,46 @@ def bootstrap():
                 (active_id, my_team["id"]),
             )
         if user["role"] == "student":
-            # 修改：返回 '匿名团队' AS name
             review_targets = rows(
-                """SELECT t.id, '匿名团队' AS name, ra.status, ra.completed_at, pr.score AS current_average,
-                   CASE WHEN pr.id IS NULL THEN 0 ELSE 1 END AS reviewed
-                   FROM review_assignments ra JOIN teams t ON t.id=ra.target_team_id
+                """SELECT ra.assignment_key AS assignment_id,ra.status,ra.completed_at,
+                   pr.score AS current_score,CASE WHEN pr.id IS NULL THEN 0 ELSE 1 END AS reviewed,
+                   EXISTS(SELECT 1 FROM submissions s JOIN iterations i ON i.id=s.iteration_id
+                          WHERE s.team_id=ra.target_team_id AND i.project_id=ra.project_id
+                            AND s.status<>'withdrawn') AS has_submission
+                   FROM review_assignments ra
                    LEFT JOIN peer_reviews pr ON pr.project_id=ra.project_id AND pr.reviewer_id=ra.reviewer_id
                         AND pr.target_team_id=ra.target_team_id
-                   WHERE ra.project_id=? AND ra.reviewer_id=? ORDER BY t.id""",
+                   WHERE ra.project_id=? AND ra.reviewer_id=? ORDER BY ra.created_at,ra.assignment_key""",
                 (active_id, user["id"]),
             )
+            for index, target in enumerate(review_targets):
+                target["name"] = f"匿名成果 {chr(65 + index)}"
         active_grades = gradebook(active_id)
-        if user["role"] in ("teacher", "assistant"):
+        if user["role"] == "teacher":
             active["gradebook"] = active_grades
+        elif user["role"] == "assistant":
+            active["gradebook"] = [
+                {
+                    "team_id": item["team_id"],
+                    "team_name": item["team_name"],
+                    "peer_score": item["peer_score"],
+                    "peer_count": item["peer_count"],
+                    "process_score": item["process_score"],
+                }
+                for item in active_grades
+            ]
         elif active["grades_published"] and my_team:
-            active["gradebook"] = [item for item in active_grades if item["team_id"] == my_team["id"]]
+            own_team = next((item for item in active_grades if item["team_id"] == my_team["id"]), None)
+            own_grade = next((item for item in (own_team or {}).get("individuals", []) if item["user_id"] == user["id"]), None)
+            if own_team and own_grade:
+                active["gradebook"] = [
+                    {
+                        "team_id": own_team["team_id"],
+                        "team_name": own_team["team_name"],
+                        "peer_score": own_team["peer_score"],
+                        "individual_score": own_grade["individual_score"],
+                    }
+                ]
         if user["role"] in ("teacher", "assistant"):
             visible_logs = rows(
                 """SELECT l.*,u.name AS user_name,u.role AS user_role FROM audit_logs l JOIN users u ON u.id=l.user_id
@@ -931,6 +1078,10 @@ def create_team():
     if not project or not name:
         return abort_json("项目或团队名称无效")
     selected_project(project_id, user)
+    try:
+        ensure_project_writable(project_id)
+    except APIError as exc:
+        return abort_json(exc.message, exc.status)
     if row("SELECT 1 FROM team_members tm JOIN teams t ON t.id=tm.team_id WHERE tm.user_id=? AND t.project_id=?", (user["id"], project_id)):
         return abort_json("你已加入该项目的团队")
     if datetime.now() > parse_deadline(project["team_deadline"]):
@@ -955,6 +1106,10 @@ def join_team(team_id: int):
     team = row("SELECT t.*, p.team_deadline FROM teams t JOIN projects p ON p.id=t.project_id WHERE t.id=?", (team_id,))
     if not team:
         return abort_json("团队不存在", 404)
+    try:
+        ensure_project_writable(team["project_id"])
+    except APIError as exc:
+        return abort_json(exc.message, exc.status)
     if datetime.now() > parse_deadline(team["team_deadline"]):
         return abort_json("已超过组队截止时间")
     if row("SELECT 1 FROM team_members tm JOIN teams t ON t.id=tm.team_id WHERE tm.user_id=? AND t.project_id=?", (user["id"], team["project_id"])):
@@ -983,6 +1138,10 @@ def leave_team(team_id: int):
     if not membership:
         return abort_json("你不在该团队中", 404)
     project = selected_project(membership["project_id"], user)
+    try:
+        ensure_project_writable(membership["project_id"])
+    except APIError as exc:
+        return abort_json(exc.message, exc.status)
     if datetime.now() > parse_deadline(project["team_deadline"]):
         return abort_json("组队截止后不能退出团队")
     if row("SELECT 1 FROM submissions WHERE team_id=? AND status<>'withdrawn'", (team_id,)):
@@ -1008,7 +1167,6 @@ def upload_submission(iteration_id: int):
     if not iteration:
         return abort_json("迭代不存在", 404)
         
-    # 新增：成绩发布后禁止上传
     project_check = row("SELECT grades_published FROM projects WHERE id=?", (iteration["project_id"],))
     if project_check and project_check["grades_published"]:
         return abort_json("成绩已发布，不能上传或修改成果", 403)
@@ -1085,7 +1243,6 @@ def withdraw_submission(submission_id: int):
     if not submission or not submission["is_leader"]:
         return abort_json("只有团队负责人可以撤回", 403)
         
-    # 新增：成绩发布后禁止撤回
     team_proj = row("SELECT project_id FROM teams WHERE id=?", (submission["team_id"],))
     project_check = row("SELECT grades_published FROM projects WHERE id=?", (team_proj["project_id"],))
     if project_check and project_check["grades_published"]:
@@ -1114,17 +1271,38 @@ def download_submission(submission_id: int):
     allowed = user["role"] in ("teacher", "assistant")
     if user["role"] == "student":
         allowed = bool(row("SELECT 1 FROM team_members WHERE team_id=? AND user_id=?", (submission["team_id"], user["id"])))
-        if not allowed:
-            allowed = bool(
-                row(
-                    """SELECT 1 FROM review_assignments ra JOIN projects p ON p.id=ra.project_id
-                       WHERE ra.project_id=? AND ra.reviewer_id=? AND ra.target_team_id=? AND p.review_open=1""",
-                    (submission["project_id"], user["id"], submission["team_id"]),
-                )
-            )
     if not allowed:
-        return abort_json("你无权下载该团队文件", 403)
+        return abort_json("请通过匿名互评任务下载被分配成果", 403)
     return send_file(submission["file_path"], as_attachment=True, download_name=submission["file_name"])
+
+
+@app.get("/api/review-assignments/<assignment_key>/download")
+def download_assigned_submission(assignment_key: str):
+    user, error = require_role("student")
+    if error:
+        return error
+    assignment = row(
+        """SELECT ra.project_id,ra.target_team_id,p.review_open,p.grades_published
+           FROM review_assignments ra JOIN projects p ON p.id=ra.project_id
+           WHERE ra.assignment_key=? AND ra.reviewer_id=?""",
+        (assignment_key, user["id"]),
+    )
+    if not assignment:
+        return abort_json("互评任务不存在", 404)
+    if not assignment["review_open"] or assignment["grades_published"]:
+        return abort_json("互评通道当前不可用", 403)
+    submission = row(
+        """SELECT s.file_path,s.file_name FROM submissions s
+           JOIN iterations i ON i.id=s.iteration_id
+           WHERE s.team_id=? AND i.project_id=? AND s.status<>'withdrawn'
+           ORDER BY s.submitted_at DESC,s.id DESC LIMIT 1""",
+        (assignment["target_team_id"], assignment["project_id"]),
+    )
+    if not submission or not submission["file_path"] or not Path(submission["file_path"]).exists():
+        return abort_json("该匿名成果暂无可下载文件", 404)
+    extension = Path(submission["file_name"]).suffix.lower()
+    anonymous_name = f"anonymous-submission{extension}" if extension else "anonymous-submission"
+    return send_file(submission["file_path"], as_attachment=True, download_name=anonymous_name)
 
 
 @app.get("/api/submissions/<int:submission_id>/versions")
@@ -1154,34 +1332,35 @@ def submit_review():
         return error
     data = request.get_json(force=True)
     project_id = int(data.get("project_id", 0))
-    target_team_id = int(data.get("target_team_id", 0))
+    assignment_key = str(data.get("assignment_id", "")).strip()
     try:
         score = float(data.get("score", -1))
     except (TypeError, ValueError):
         return abort_json("评分必须是数字")
     comment = str(data.get("comment", "")).strip()
     project = row("SELECT * FROM projects WHERE id=?", (project_id,))
-    if not project or not project["review_open"]:
-        return abort_json("互评尚未开启")
-        
-    # 新增：成绩发布后禁止互评
+    if not project:
+        return abort_json("项目不存在", 404)
     if project.get("grades_published"):
         return abort_json("成绩已发布，互评已冻结", 403)
+    if not project["review_open"]:
+        return abort_json("互评尚未开启")
 
     selected_project(project_id, user)
     if project.get("review_deadline") and datetime.now() > parse_deadline(project["review_deadline"]):
         return abort_json("互评已截止")
     if score < 0 or score > 100 or not comment:
         return abort_json("评分应为 0—100，且必须填写评语")
-    own = row("SELECT t.id FROM teams t JOIN team_members tm ON tm.team_id=t.id WHERE t.project_id=? AND tm.user_id=?", (project_id, user["id"]))
-    if own and own["id"] == target_team_id:
-        return abort_json("不能评审自己的团队")
     assignment = row(
-        "SELECT * FROM review_assignments WHERE project_id=? AND reviewer_id=? AND target_team_id=?",
-        (project_id, user["id"], target_team_id),
+        "SELECT * FROM review_assignments WHERE project_id=? AND reviewer_id=? AND assignment_key=?",
+        (project_id, user["id"], assignment_key),
     )
     if not assignment:
         return abort_json("该团队不在你的互评分配任务中", 403)
+    target_team_id = assignment["target_team_id"]
+    own = row("SELECT t.id FROM teams t JOIN team_members tm ON tm.team_id=t.id WHERE t.project_id=? AND tm.user_id=?", (project_id, user["id"]))
+    if own and own["id"] == target_team_id:
+        return abort_json("不能评审自己的团队")
     db = get_db()
     db.execute(
         """INSERT INTO peer_reviews(project_id,reviewer_id,target_team_id,score,comment,created_at)
@@ -1204,6 +1383,8 @@ def toggle_review(project_id: int):
     if error:
         return error
     project = selected_project(project_id, user)
+    if project["grades_published"]:
+        return abort_json("成绩已发布，不能再变更互评状态", 403)
     new_state = 0 if project["review_open"] else 1
     db = get_db()
     if new_state:
@@ -1234,9 +1415,10 @@ def toggle_review(project_id: int):
                 candidates = candidates[offset:] + candidates[:offset]
             for target_team_id in candidates[:3]:
                 inserted = db.execute(
-                    """INSERT OR IGNORE INTO review_assignments(project_id,reviewer_id,target_team_id,status,created_at)
-                       VALUES(?,?,?,'pending',?)""",
-                    (project_id, member["user_id"], target_team_id, now_iso()),
+                    """INSERT OR IGNORE INTO review_assignments(
+                           project_id,reviewer_id,target_team_id,status,created_at,assignment_key
+                       ) VALUES(?,?,?,'pending',?,?)""",
+                    (project_id, member["user_id"], target_team_id, now_iso(), uuid.uuid4().hex),
                 )
                 if inserted.rowcount:
                     notify(member["user_id"], "新的互评任务", "请在截止时间前完成分配的团队互评。", "review", "reviews")
@@ -1247,7 +1429,7 @@ def toggle_review(project_id: int):
 
 
 def upsert_score(kind: str):
-    roles = ("assistant", "teacher") if kind == "process" else ("teacher",)
+    roles = ("assistant",) if kind == "process" else ("teacher",)
     user, error = require_role(*roles)
     if error:
         return error
@@ -1291,6 +1473,55 @@ def final_score():
     return upsert_score("final")
 
 
+@app.post("/api/individual-adjustments")
+def save_individual_adjustment():
+    user, error = require_role("teacher")
+    if error:
+        return error
+    data = request.get_json(silent=True) or {}
+    project_id = int(data.get("project_id", 0))
+    user_id = str(data.get("user_id", "")).strip()
+    reason = str(data.get("reason", "")).strip()
+    try:
+        coefficient = float(data.get("coefficient", 1))
+        manual_deduction = float(data.get("manual_deduction", 0))
+    except (TypeError, ValueError):
+        return abort_json("折算系数和扣分必须是数字")
+    project = selected_project(project_id, user)
+    if project["grades_published"]:
+        return abort_json("成绩已发布，个人成绩核定已锁定", 403)
+    if not 0 <= coefficient <= 1:
+        return abort_json("个人折算系数必须在 0—1 之间")
+    if not 0 <= manual_deduction <= 100:
+        return abort_json("个人扣分必须在 0—100 之间")
+    if not reason:
+        return abort_json("调整个人成绩必须填写理由")
+    member = row(
+        """SELECT tm.team_id,u.name FROM team_members tm JOIN teams t ON t.id=tm.team_id
+           JOIN users u ON u.id=tm.user_id WHERE t.project_id=? AND tm.user_id=?""",
+        (project_id, user_id),
+    )
+    if not member:
+        return abort_json("该学生不属于当前项目", 400)
+    db = get_db()
+    db.execute(
+        """INSERT INTO individual_grade_adjustments(
+               project_id,team_id,user_id,coefficient,manual_deduction,reason,updated_by,updated_at
+           ) VALUES(?,?,?,?,?,?,?,?)
+           ON CONFLICT(project_id,user_id) DO UPDATE SET
+               team_id=excluded.team_id,coefficient=excluded.coefficient,
+               manual_deduction=excluded.manual_deduction,reason=excluded.reason,
+               updated_by=excluded.updated_by,updated_at=excluded.updated_at""",
+        (project_id, member["team_id"], user_id, coefficient, manual_deduction, reason, user["id"], now_iso()),
+    )
+    audit(
+        user["id"], "adjust_grade", "user", user_id,
+        f"核定个人成绩：系数 {coefficient}，人工扣分 {manual_deduction}，理由：{reason}", project_id,
+    )
+    db.commit()
+    return jsonify({"ok": True, "message": "个人成绩核定已保存"})
+
+
 @app.post("/api/projects/<int:project_id>/publish-grades")
 def publish_grades(project_id: int):
     user, error = require_role("teacher")
@@ -1304,23 +1535,85 @@ def publish_grades(project_id: int):
             ensure_team_ready(team["id"])
         except APIError as exc:
             return abort_json(f"团队 {team['id']}：{exc.message}")
-    grades = gradebook(project_id)
-    if not grades or any(item["total"] is None for item in grades):
+    grades = live_gradebook(project_id)
+    if not grades or any(item["total"] is None or any(person["individual_score"] is None for person in item["individuals"]) for item in grades):
         return abort_json("仍有团队缺少互评、过程分或终评分，暂不能发布")
     db = get_db()
-    db.execute("UPDATE projects SET grades_published=1 WHERE id=?", (project_id,))
     version = row("SELECT COALESCE(MAX(version),0)+1 AS version FROM grade_publications WHERE project_id=?", (project_id,))["version"]
+    db.execute("UPDATE grade_publications SET active=0 WHERE project_id=?", (project_id,))
     db.execute(
-        "INSERT INTO grade_publications(project_id,published_by,published_at,version) VALUES(?,?,?,?)",
+        "INSERT INTO grade_publications(project_id,published_by,published_at,version,active) VALUES(?,?,?,?,1)",
         (project_id, user["id"], now_iso(), version),
     )
+    publication_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+    for grade in grades:
+        db.execute(
+            """INSERT INTO team_grade_snapshots(
+                   publication_id,project_id,team_id,team_name,peer_score,peer_count,process_score,final_score,total
+               ) VALUES(?,?,?,?,?,?,?,?,?)""",
+            (
+                publication_id, project_id, grade["team_id"], grade["team_name"], grade["peer_score"],
+                grade["peer_count"], grade["process_score"], grade["final_score"], grade["total"],
+            ),
+        )
+        for person in grade["individuals"]:
+            db.execute(
+                """INSERT INTO individual_grade_snapshots(
+                       publication_id,project_id,team_id,user_id,user_name,peer_score,coefficient,
+                       manual_deduction,missing_review_penalty,final_score
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    publication_id, project_id, grade["team_id"], person["user_id"], person["user_name"],
+                    grade["peer_score"], person["coefficient"], person["manual_deduction"],
+                    person["missing_review_penalty"], person["individual_score"],
+                ),
+            )
+    db.execute("UPDATE projects SET grades_published=1,review_open=0 WHERE id=?", (project_id,))
     db.execute("UPDATE teams SET status='completed' WHERE project_id=?", (project_id,))
+    db.execute(
+        """UPDATE submissions SET status='archived' WHERE team_id IN
+           (SELECT id FROM teams WHERE project_id=?) AND status<>'withdrawn'""",
+        (project_id,),
+    )
     for team in rows("SELECT id FROM teams WHERE project_id=?", (project_id,)):
         for member in rows("SELECT user_id FROM team_members WHERE team_id=?", (team["id"],)):
             notify(member["user_id"], "成绩已发布", "项目综合成绩已发布，请进入成绩页面查看。", "grade", "grades")
-    audit(user["id"], "publish", "grades", project_id, "发布项目成绩", project_id)
+    audit(user["id"], "publish", "grades", project_id, f"发布项目成绩 v{version} 并生成不可变快照", project_id)
     db.commit()
-    return jsonify({"ok": True, "message": "成绩已发布"})
+    return jsonify({"ok": True, "message": "成绩已发布", "version": version})
+
+
+@app.post("/api/projects/<int:project_id>/unpublish-grades")
+def unpublish_grades(project_id: int):
+    user, error = require_role("teacher")
+    if error:
+        return error
+    project = selected_project(project_id, user)
+    data = request.get_json(silent=True) or {}
+    reason = str(data.get("reason", "")).strip()
+    if not project["grades_published"]:
+        return abort_json("当前成绩尚未发布")
+    if not reason:
+        return abort_json("撤回发布必须填写理由")
+    publication = active_publication(project_id)
+    if not publication:
+        return abort_json("未找到当前发布版本", 409)
+    db = get_db()
+    db.execute(
+        """UPDATE grade_publications SET active=0,withdrawn_at=?,withdrawn_by=?,withdrawal_reason=?
+           WHERE id=?""",
+        (now_iso(), user["id"], reason, publication["id"]),
+    )
+    db.execute("UPDATE projects SET grades_published=0 WHERE id=?", (project_id,))
+    db.execute("UPDATE teams SET status='active' WHERE project_id=?", (project_id,))
+    db.execute(
+        """UPDATE submissions SET status='submitted' WHERE team_id IN
+           (SELECT id FROM teams WHERE project_id=?) AND status='archived'""",
+        (project_id,),
+    )
+    audit(user["id"], "unpublish", "grades", project_id, f"撤回成绩 v{publication['version']}：{reason}", project_id)
+    db.commit()
+    return jsonify({"ok": True, "message": "成绩发布已撤回，历史快照已保留"})
 
 
 @app.get("/api/projects/<int:project_id>/grades.csv")
@@ -1328,7 +1621,9 @@ def export_grades(project_id: int):
     user, error = require_role("teacher")
     if error:
         return error
-    selected_project(project_id, user)
+    project = selected_project(project_id, user)
+    if not project["grades_published"] or not active_publication(project_id):
+        return abort_json("请先发布成绩，再导出归档表", 409)
     output = io.StringIO()
     output.write("\ufeff")
     writer = csv.writer(output)
@@ -1341,6 +1636,62 @@ def export_grades(project_id: int):
         output.getvalue(),
         mimetype="text/csv; charset=utf-8",
         headers={"Content-Disposition": f"attachment; filename=project-{project_id}-grades.csv"},
+    )
+
+
+@app.get("/api/projects/<int:project_id>/grades.xlsx")
+def export_grades_xlsx(project_id: int):
+    user, error = require_role("teacher")
+    if error:
+        return error
+    project = selected_project(project_id, user)
+    publication = active_publication(project_id)
+    if not project["grades_published"] or not publication:
+        return abort_json("请先发布成绩，再导出归档表", 409)
+    grades = gradebook(project_id)
+    workbook = Workbook()
+    summary = workbook.active
+    summary.title = "团队汇总"
+    summary.append(["团队", "成员名单", "互评分", "过程分", "教师终评", "团队总分"])
+    detail = workbook.create_sheet("个人明细")
+    detail.append(["团队", "学号", "姓名", "互评分", "折算系数", "人工扣分", "缺评扣分", "个人最终分"])
+    metadata = workbook.create_sheet("发布信息")
+    metadata.append(["项目", project["title"]])
+    metadata.append(["成绩版本", publication["version"]])
+    metadata.append(["发布时间", publication["published_at"]])
+    metadata.append(["发布人", user["name"]])
+    metadata.append(["计算公式", "团队总分×个人折算系数-人工扣分-缺评扣分，结果限制在0-100"])
+    for grade in grades:
+        member_names = "、".join(person["user_name"] for person in grade["individuals"])
+        summary.append([grade["team_name"], member_names, grade["peer_score"], grade["process_score"], grade["final_score"], grade["total"]])
+        for person in grade["individuals"]:
+            detail.append(
+                [
+                    grade["team_name"], person["user_id"], person["user_name"], grade["peer_score"],
+                    person["coefficient"], person["manual_deduction"], person["missing_review_penalty"],
+                    person["individual_score"],
+                ]
+            )
+    for sheet in (summary, detail, metadata):
+        sheet.freeze_panes = "A2"
+        for cell in sheet[1]:
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="3457D5")
+            cell.alignment = Alignment(horizontal="center")
+        for column in sheet.columns:
+            width = min(40, max(12, max(len(str(cell.value or "")) for cell in column) + 2))
+            sheet.column_dimensions[column[0].column_letter].width = width
+    output = io.BytesIO()
+    workbook.save(output)
+    content = output.getvalue()
+    digest = hashlib.sha256(content).hexdigest()
+    audit(user["id"], "export", "grades", project_id, f"导出 Excel 成绩归档 v{publication['version']}，SHA-256 {digest}", project_id)
+    get_db().commit()
+    filename = f"project-{project_id}-grades-v{publication['version']}.xlsx"
+    return Response(
+        content,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}", "X-Content-SHA256": digest},
     )
 
 

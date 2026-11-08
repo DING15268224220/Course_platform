@@ -1,0 +1,58 @@
+1、环境清单
+
+系统名称：高校课程项目协作与评审平台 V3.1
+目标平台：Windows 10 / Windows 11，64 位
+
+一、网页版必需环境
+
+1. Python：3.10 或更高版本，推荐 3.12.3。
+2. pip：推荐 24.0 或更高版本。
+3. Python 运行依赖：
+   Flask==3.0.3
+   waitress==3.0.2
+   openpyxl==3.1.5
+4. 安装命令：
+   python -m pip install -r backend\requirements.txt
+5. 默认访问地址：
+   http://127.0.0.1:5080
+
+二、桌面版必需环境
+
+1. Node.js：22.12.0 或更高版本，推荐 22.19.0。
+2. npm：推荐 10.9.3 或更高版本。
+3. Electron：45.1.0。
+4. electron-builder：26.18.0。
+5. 安装命令：
+   cd desktop
+   npm install
+6. 桌面开发版默认优先使用 5055 端口，端口被占用时自动选择其他可用端口。
+
+三、测试与打包环境
+
+1. pytest==7.4.4，用于后端自动化测试。
+2. PyInstaller==6.16.0，用于生成桌面版后端可执行文件。
+3. 完整开发依赖安装命令：
+   python -m pip install -r backend\requirements-dev.txt
+   python -m pip install -r desktop\requirements-desktop.txt
+4. Windows 便携版构建命令：
+   cd desktop
+   npm install
+   npm run dist:win
+
+四、已验证环境
+
+操作系统：Microsoft Windows 11 家庭版中文版，64 位
+Python：3.12.3
+pip：24.0
+pytest：7.4.4
+Node.js：22.19.0
+npm：10.9.3
+Git：2.45.1.windows.1（仅源码管理需要，运行系统不强制）
+
+五、硬件与磁盘建议
+
+处理器：x64 双核或更高
+内存：至少 4GB，建议 8GB
+磁盘：网页版约需 100MB；安装桌面依赖和构建工具时建议预留 1.5GB
+网络：首次安装 npm 或 pip 依赖时需要访问软件包镜像；安装完成后系统可在本机离线运行
+

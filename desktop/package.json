@@ -1,15 +1,19 @@
 {
   "name": "course-project-review-platform",
-  "version": "2.0.0",
+  "version": "3.1.0",
   "private": true,
   "description": "高校课程项目协作与评审平台桌面版",
   "main": "main.cjs",
   "scripts": {
     "desktop": "electron .",
     "desktop:debug": "set ELECTRON_ENABLE_LOGGING=1&& electron .",
-    "test:backend": "cd ..\\backend && D:\\Anaconda\\python.exe -m pytest -q",
-    "build:backend": "scripts\\build_backend.bat",
+    "test:backend": "python -m pytest ..\\backend\\tests -q",
+    "build:backend": "python scripts\\build_backend.py",
     "dist:win": "npm run build:backend && electron-builder --win portable"
+  },
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10.0.0"
   },
   "devDependencies": {
     "electron": "45.1.0",
@@ -35,7 +39,9 @@
       "target": [
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "artifactName": "CourseProjectReviewPlatform-${version}-portable.${ext}"
