@@ -88,6 +88,12 @@ python .\tests\test_script.py --mode all
 
 测试结果、运行日志和页面截图保存在 `tests/screenshots`，详细结果见 [自动化测试报告](tests/TEST_REPORT.pdf)。
 
+## 项目文档
+
+- [系统设计报告](docs/高校课程项目协作设计报告.md)：类设计、体系结构、数据流、权限矩阵和接口设计。
+- [系统运行说明](3、系统说明.txt)：功能模块、运行环境、启动方法和演示账号。
+- [自动化测试报告](tests/TEST_REPORT.pdf)：测试环境、用例结果和页面截图。
+
 ## 项目结构
 
 ```text
@@ -96,7 +102,7 @@ Course_platform/
 ├─ frontend/         登录页、工作台、业务页面和样式资源
 ├─ desktop/          Electron 桌面端和 Windows 打包脚本
 ├─ tests/            完整测试脚本、测试报告、日志和截图
-├─ docs/             设计资料、运行效果和开发文档
+├─ docs/             系统设计报告、界面效果图和开发文档
 ├─ tools/            启动菜单与统一运行逻辑
 ├─ 启动系统.bat      Windows 启动入口
 ├─ 1、环境清单.txt   环境与依赖说明
