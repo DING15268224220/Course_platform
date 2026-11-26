@@ -2049,29 +2049,34 @@ def submit_review():
         return abort_json("不能评审自己的团队")
     db = get_db()
     dimensions = dict(dimension_values)
-    db.execute(
-        """INSERT INTO peer_reviews(
-               project_id,reviewer_id,target_team_id,completeness_score,innovation_score,
-               documentation_score,score,comment,created_at,status
-           ) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(project_id,reviewer_id,target_team_id)
-           DO UPDATE SET completeness_score=excluded.completeness_score,
-               innovation_score=excluded.innovation_score,documentation_score=excluded.documentation_score,
-               score=excluded.score,comment=excluded.comment,created_at=excluded.created_at,status=excluded.status""",
-        (
-            project_id, user["id"], target_team_id,
-            dimensions.get("completeness_score"), dimensions.get("innovation_score"),
-            dimensions.get("documentation_score"), score, comment, now_iso(),
-            "draft" if save_as_draft else "submitted",
-        ),
-    )
-    db.execute(
-        "UPDATE review_assignments SET status=?,completed_at=? WHERE project_id=? AND reviewer_id=? AND target_team_id=?",
-        ("pending" if save_as_draft else "completed", None if save_as_draft else now_iso(), project_id, user["id"], target_team_id),
-    )
-    if not save_as_draft:
-        refresh_review_alert(project_id, target_team_id)
-    audit(user["id"], "review_draft" if save_as_draft else "review", "team", target_team_id, f"{'保存草稿' if save_as_draft else '提交互评'}：{score}", project_id)
-    db.commit()
+    try:
+        db.execute(
+            """INSERT INTO peer_reviews(
+                   project_id,reviewer_id,target_team_id,completeness_score,innovation_score,
+                   documentation_score,score,comment,created_at,status
+               ) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(project_id,reviewer_id,target_team_id)
+               DO UPDATE SET completeness_score=excluded.completeness_score,
+                   innovation_score=excluded.innovation_score,documentation_score=excluded.documentation_score,
+                   score=excluded.score,comment=excluded.comment,created_at=excluded.created_at,status=excluded.status""",
+            (
+                project_id, user["id"], target_team_id,
+                dimensions.get("completeness_score"), dimensions.get("innovation_score"),
+                dimensions.get("documentation_score"), score, comment, now_iso(),
+                "draft" if save_as_draft else "submitted",
+            ),
+        )
+        db.execute(
+            "UPDATE review_assignments SET status=?,completed_at=? WHERE project_id=? AND reviewer_id=? AND target_team_id=?",
+            ("pending" if save_as_draft else "completed", None if save_as_draft else now_iso(), project_id, user["id"], target_team_id),
+        )
+        if not save_as_draft:
+            refresh_review_alert(project_id, target_team_id)
+        audit(user["id"], "review_draft" if save_as_draft else "review", "team", target_team_id, f"{'保存草稿' if save_as_draft else '提交互评'}：{score}", project_id)
+        db.commit()
+    except Exception:
+        db.rollback()
+        app.logger.exception("互评提交失败，已回滚")
+        return abort_json("互评提交失败，本次操作已回滚，请稍后重试", 500)
     return jsonify({"ok": True, "message": "互评草稿已保存" if save_as_draft else "互评已提交", "score": score})
 
 
