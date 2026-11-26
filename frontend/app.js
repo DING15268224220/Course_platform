@@ -44,19 +44,41 @@ function icon(name) { return icons[name] || icons.info; }
 function esc(value) {
   return String(value ?? "").replace(/[&<>'"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[ch]));
 }
-function fmt(value) { return value ? String(value).replace("T", " ").slice(0, 16) : "—"; }
+function fmt(value) {
+  if (!value) return "—";
+  const s = String(value);
+  return s.replace("T", " ").slice(0, 16);
+}
+
 function roleName(role) { return ({ admin: "教务管理员", teacher: "教师", assistant: "助教", student: "学生" })[role] || role; }
 function clamp(value, min = 0, max = 100) { return Math.max(min, Math.min(max, Number(value) || 0)); }
 function pct(value, total) { return total ? Math.round((Number(value) / Number(total)) * 100) : 0; }
 function project() { return state.data?.projects?.find((item) => item.id === state.data.active_project_id) || state.data?.projects?.[0]; }
 function initials(name) { return String(name || "?").trim().slice(-2); }
-function memberNames(team) { return String(team.members || "").split("、").filter(Boolean); }
+function memberNames(team) {
+  if (!team || !team.members) return [];
+  return String(team.members || "").split("、").filter(Boolean);
+}
+
+function memberTotal() {
+  if (!state.data || !state.data.teams) return 0;
+  return state.data.teams.reduce((total, team) => total + memberNames(team).length, 0);
+}
+
 
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (state.csrfToken && !["GET", "HEAD"].includes((options.method || "GET").toUpperCase())) headers["X-CSRF-Token"] = state.csrfToken;
   if (options.body && !(options.body instanceof FormData)) headers["Content-Type"] = "application/json";
-  const response = await fetch(path, { credentials: "same-origin", ...options, headers });
+  let response;
+  try {
+    response = await fetch(path, { credentials: "same-origin", ...options, headers });
+  } catch (fetchErr) {
+    const error = new Error("网络异常，请检查网络连接");
+    error.status = 0;
+    throw error;
+  }
+
   if ((response.headers.get("content-type") || "").includes("application/json")) {
     const data = await response.json();
     if (!response.ok || data.ok === false) {
@@ -77,19 +99,27 @@ function responseFilename(response, fallback) {
 }
 
 function toast(message, isError = false) {
-  const el = document.querySelector("#toast");
+  let el = document.querySelector("#toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "toast";
+    document.body.appendChild(el);
+  }
   el.textContent = message;
   el.classList.toggle("error", isError);
   el.hidden = false;
-  
-  // 核心逻辑：如果弹窗开着，就把 Toast 移动到弹窗内部，突破 Top Layer 限制
+
   const modal = document.querySelector("#modal");
   if (modal && modal.open) {
-    modal.appendChild(el);
+    if (el.parentElement !== modal) {
+      modal.appendChild(el);
+    }
   } else {
-    document.body.appendChild(el);
+    if (el.parentElement !== document.body) {
+      document.body.appendChild(el);
+    }
   }
-  
+
   clearTimeout(window.toastTimer);
   window.toastTimer = setTimeout(() => { el.hidden = true; }, 2800);
 }
@@ -626,23 +656,32 @@ function requiredValue(id, message) {
 }
 
 async function runBusy(button, task) {
-  if (button.disabled) return;
+  if (!button || button.disabled) return;
   const original = button.innerHTML;
   button.disabled = true;
   button.setAttribute("aria-busy", "true");
   button.textContent = "处理中…";
   try { await task(); }
-  finally { button.disabled = false; button.removeAttribute("aria-busy"); button.innerHTML = original; }
+  finally {
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+    button.innerHTML = original;
+  }
 }
 
 function bindModalSubmit(task) {
   document.querySelector("#modal-submit").onclick = (event) => runBusy(event.currentTarget, async () => {
-    try { await task(); }
-    catch (error) { 
-      if (error.status) {
-        closeModal(); 
+    try {
+      await task();
+    }
+    catch (error) {
+      // 4xx状态码正常关闭弹窗；业务校验异常保留弹窗让用户修改
+      if (error.status && error.status >=400 && error.status <500) {
+        if(!error.message.includes("请输入")){
+          closeModal();
+        }
       }
-      toast(error.message, true); 
+      toast(error.message, true);
     }
   });
 }
