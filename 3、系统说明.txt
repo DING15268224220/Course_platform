@@ -114,8 +114,9 @@ backend      Flask 后端、数据库初始化和后端接口测试
 frontend     登录页、工作台、业务页面和样式资源
 desktop      Electron 桌面端和 Windows 打包脚本
 tests        完整测试脚本、测试报告、日志和页面截图
-docs         系统设计报告、设计资料和界面效果图片
+docs         设计资料和界面效果图片
 tools        Windows 启动菜单和统一运行脚本
+高校课程项目协作设计报告.md    系统类设计、体系结构和接口设计
 
 十一、运行说明
 
