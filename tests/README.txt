@@ -74,6 +74,10 @@ Course_platform V4 完整功能验收测试包
 
    tests\TEST_REPORT.md
 
+用于提交和打印的固定版报告为：
+
+   tests\TEST_REPORT.pdf
+
 报告按实际顺序列出前后端每项 PASS/FAIL、运行环境、异常说明，并直接嵌入截图。
 
 正常完整执行会生成 28 张 PNG：登录相关 2 张，加四类角色共 26 个页面视图。
@@ -98,6 +102,7 @@ screenshots\backend-tests.log。
    tests\test_full_api.py
    tests\README.txt
    tests\TEST_REPORT.md
+   tests\TEST_REPORT.pdf
    tests\screenshots\*.png
    tests\screenshots\backend-tests.log
    tests\screenshots\test-results.json
