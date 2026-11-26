@@ -106,6 +106,21 @@ class PlatformTest(unittest.TestCase):
             grade = next(item for item in platform_app.live_gradebook(1) if item["team_id"] == 1)
         self.assertEqual(grade["peer_score"], 76.7)
 
+    def test_peer_review_below_two_flags_warning(self):
+        with platform_app.app.app_context():
+            db = platform_app.get_db()
+            db.execute("DELETE FROM peer_reviews WHERE project_id=1 AND target_team_id=1")
+            db.execute(
+                "INSERT INTO peer_reviews(project_id,reviewer_id,target_team_id,score,comment,created_at) VALUES(?,?,?,?,?,?)",
+                (1, "s3", 1, 85, "不足2份边界", platform_app.now_iso()),
+            )
+            db.commit()
+            grade = next(item for item in platform_app.live_gradebook(1) if item["team_id"] == 1)
+        self.assertIsNone(grade["peer_score"])
+        self.assertEqual(grade["peer_count"], 1)
+        self.assertIsNotNone(grade["peer_warning"])
+        self.assertIn("不足2份", grade["peer_warning"])
+
     def test_small_team_cannot_submit(self):
         with platform_app.app.app_context():
             db = platform_app.get_db()
