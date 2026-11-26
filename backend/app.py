@@ -931,13 +931,18 @@ def live_gradebook(project_id: int):
         )
         scores = [r["score"] for r in peer_rows]
         count = len(scores)
+        peer_warning = None
         if count >= 3:
+            # 3 份及以上：去掉一个最高分、一个最低分后取算术平均（AC-04 极值剔除）
             valid_scores = scores[1:-1]
             peer_score = round(sum(valid_scores) / len(valid_scores), 1)
         elif count == 2:
+            # 仅 2 份互评：样本不足无法剔除极值，直接取算术平均
             peer_score = round(sum(scores) / count, 1)
         else:
+            # 有效互评不足 2 份：暂停互评分计算，标记数据异常，提示教师介入复核（BR-09）
             peer_score = None
+            peer_warning = "有效互评不足2份，互评分暂缺，需教师介入复核"
 
         process = row("SELECT score FROM process_scores WHERE project_id=? AND team_id=?", (project_id, team["id"]))
         final = row("SELECT score FROM final_scores WHERE project_id=? AND team_id=?", (project_id, team["id"]))
@@ -993,6 +998,7 @@ def live_gradebook(project_id: int):
                 "team_name": team["name"],
                 "peer_score": peer_score,
                 "peer_count": count,
+                "peer_warning": peer_warning,
                 "process_score": process_score,
                 "final_score": final_score,
                 "total": total,
