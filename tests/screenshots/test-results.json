@@ -1,0 +1,479 @@
+{
+  "run_at": "2026-11-26T18:07:43+08:00",
+  "mode": "all",
+  "backend_status": "PASS",
+  "frontend_status": "PASS",
+  "environment": {
+    "操作系统": "Windows-10-10.0.26300-SP0",
+    "Conda 环境": "course_platform_test",
+    "Python": "3.11.18",
+    "pytest": "7.4.4",
+    "Flask": "3.0.3",
+    "Playwright": "1.65.2",
+    "Chromium": "159.0.8154.6",
+    "Git 分支": "course-platform-final-tested",
+    "Git 提交": "024a85d",
+    "测试服务": "http://127.0.0.1:5088",
+    "测试数据": "临时隔离数据库（不修改正式数据）"
+  },
+  "backend_cases": [
+    {
+      "id": "BE-01",
+      "name": "test_ac03_overdue_submission_is_rejected",
+      "description": "AC-03 逾期成果提交被拒绝且不生成有效记录",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-02",
+      "name": "test_ac04_trims_extremes_and_rounds_to_one_decimal",
+      "description": "互评去除极值并保留一位小数",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-03",
+      "name": "test_ac06_publish_snapshot_student_privacy_and_excel",
+      "description": "成绩发布快照、学生隐私及 Excel/PDF 导出",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-04",
+      "name": "test_assigned_review_download_uses_anonymous_route_and_filename",
+      "description": "匿名互评分配下载及匿名文件名",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-05",
+      "name": "test_assistant_cannot_write_teacher_score_or_see_final_score",
+      "description": "助教无权录入或查看教师终评分",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-06",
+      "name": "test_authentication_required_and_login",
+      "description": "未登录拦截、错误密码及教师登录",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-07",
+      "name": "test_grade_math",
+      "description": "综合成绩计算公式",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-08",
+      "name": "test_notification_can_be_marked_read",
+      "description": "单条通知标记已读",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-09",
+      "name": "test_other_team_file_is_not_downloadable",
+      "description": "学生无法直接下载其他团队文件",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-10",
+      "name": "test_peer_review_below_two_flags_warning",
+      "description": "互评不足两份时显示边界预警",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-11",
+      "name": "test_review_requires_assignment",
+      "description": "互评必须具有系统分配任务",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-12",
+      "name": "test_score_team_must_belong_to_project",
+      "description": "评分团队必须属于当前项目",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-13",
+      "name": "test_small_team_cannot_submit",
+      "description": "团队人数不足时禁止提交",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-14",
+      "name": "test_student_bootstrap_does_not_leak_other_teams",
+      "description": "学生数据范围不泄露其他团队信息",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-15",
+      "name": "test_student_cannot_create_project",
+      "description": "学生无权创建项目",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-16",
+      "name": "test_unknown_user_is_json_401",
+      "description": "未知用户返回规范 JSON 401",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-17",
+      "name": "test_unpublish_preserves_snapshot_history",
+      "description": "撤回成绩后保留历史快照",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-18",
+      "name": "test_unpublished_student_grade_is_hidden",
+      "description": "未发布成绩对学生隐藏",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-19",
+      "name": "test_v4_course_project_draft_and_publish",
+      "description": "课程创建、项目草稿及正式发布",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-20",
+      "name": "test_v4_grade_appeal_admin_resolution",
+      "description": "学生成绩申诉、管理员处理、审计与备份",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-21",
+      "name": "test_v4_join_request_requires_leader_approval",
+      "description": "入队申请必须由组长审批",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-22",
+      "name": "test_v4_login_lockout_after_five_failures",
+      "description": "连续五次登录失败后账号锁定",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-23",
+      "name": "test_v4_member_task_allows_designated_member_submission",
+      "description": "指定成员任务及成果提交权限",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-24",
+      "name": "test_v4_multidimensional_review_draft_and_alert",
+      "description": "三维互评、草稿及异常评分预警",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-25",
+      "name": "test_v4_process_return_and_iteration_score",
+      "description": "助教退回、查收及迭代过程评分",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-26",
+      "name": "test_weights_reject_invalid_range_and_sum",
+      "description": "评分权重范围及总和校验",
+      "source": "backend/tests/test_app.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-27",
+      "name": "test_create_team_leave_and_teacher_member_adjustment",
+      "description": "创建/退出团队及教师例外调员",
+      "source": "tests/test_full_api.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-28",
+      "name": "test_csv_export_after_grade_publication",
+      "description": "成绩发布后 CSV 导出",
+      "source": "tests/test_full_api.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-29",
+      "name": "test_member_task_creation_and_status_update",
+      "description": "成员任务创建及状态更新",
+      "source": "tests/test_full_api.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-30",
+      "name": "test_project_update_and_add_iteration",
+      "description": "项目修改及新增迭代",
+      "source": "tests/test_full_api.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-31",
+      "name": "test_public_endpoints_session_notifications_and_logout",
+      "description": "公共接口、会话、全部已读及退出",
+      "source": "tests/test_full_api.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-32",
+      "name": "test_reminders_review_toggle_alert_resolution_and_scores",
+      "description": "催交、互评开关、预警处理及过程/终评分",
+      "source": "tests/test_full_api.py",
+      "status": "PASSED"
+    },
+    {
+      "id": "BE-33",
+      "name": "test_submission_upload_download_versions_and_withdraw",
+      "description": "成果上传、下载、版本历史及撤回",
+      "source": "tests/test_full_api.py",
+      "status": "PASSED"
+    }
+  ],
+  "frontend_cases": [
+    {
+      "id": "FE-00",
+      "description": "登录页加载及演示账号列表",
+      "role": "公共",
+      "page": "登录页",
+      "status": "PASS",
+      "screenshot": "screenshots/00-login-page.png"
+    },
+    {
+      "id": "FE-01",
+      "description": "错误密码显示明确提示（预期异常）",
+      "role": "教师",
+      "page": "登录页",
+      "status": "PASS",
+      "screenshot": "screenshots/01-invalid-password.png"
+    },
+    {
+      "id": "FE-02",
+      "description": "教务管理员进入工作台概览页面",
+      "role": "教务管理员",
+      "page": "工作台概览",
+      "status": "PASS",
+      "screenshot": "screenshots/admin-01-overview.png"
+    },
+    {
+      "id": "FE-03",
+      "description": "教务管理员进入项目管理页面",
+      "role": "教务管理员",
+      "page": "项目管理",
+      "status": "PASS",
+      "screenshot": "screenshots/admin-02-projects.png"
+    },
+    {
+      "id": "FE-04",
+      "description": "教务管理员进入团队与成员页面",
+      "role": "教务管理员",
+      "page": "团队与成员",
+      "status": "PASS",
+      "screenshot": "screenshots/admin-03-teams.png"
+    },
+    {
+      "id": "FE-05",
+      "description": "教务管理员进入成果提交页面",
+      "role": "教务管理员",
+      "page": "成果提交",
+      "status": "PASS",
+      "screenshot": "screenshots/admin-04-submissions.png"
+    },
+    {
+      "id": "FE-06",
+      "description": "教务管理员进入成绩管理页面",
+      "role": "教务管理员",
+      "page": "成绩管理",
+      "status": "PASS",
+      "screenshot": "screenshots/admin-05-grades.png"
+    },
+    {
+      "id": "FE-07",
+      "description": "教务管理员进入操作记录页面",
+      "role": "教务管理员",
+      "page": "操作记录",
+      "status": "PASS",
+      "screenshot": "screenshots/admin-06-logs.png"
+    },
+    {
+      "id": "FE-08",
+      "description": "教师进入工作台概览页面",
+      "role": "教师",
+      "page": "工作台概览",
+      "status": "PASS",
+      "screenshot": "screenshots/teacher-01-overview.png"
+    },
+    {
+      "id": "FE-09",
+      "description": "教师进入项目管理页面",
+      "role": "教师",
+      "page": "项目管理",
+      "status": "PASS",
+      "screenshot": "screenshots/teacher-02-projects.png"
+    },
+    {
+      "id": "FE-10",
+      "description": "教师进入团队与成员页面",
+      "role": "教师",
+      "page": "团队与成员",
+      "status": "PASS",
+      "screenshot": "screenshots/teacher-03-teams.png"
+    },
+    {
+      "id": "FE-11",
+      "description": "教师进入成果提交页面",
+      "role": "教师",
+      "page": "成果提交",
+      "status": "PASS",
+      "screenshot": "screenshots/teacher-04-submissions.png"
+    },
+    {
+      "id": "FE-12",
+      "description": "教师进入匿名互评页面",
+      "role": "教师",
+      "page": "匿名互评",
+      "status": "PASS",
+      "screenshot": "screenshots/teacher-05-reviews.png"
+    },
+    {
+      "id": "FE-13",
+      "description": "教师进入成绩管理页面",
+      "role": "教师",
+      "page": "成绩管理",
+      "status": "PASS",
+      "screenshot": "screenshots/teacher-06-grades.png"
+    },
+    {
+      "id": "FE-14",
+      "description": "教师进入操作记录页面",
+      "role": "教师",
+      "page": "操作记录",
+      "status": "PASS",
+      "screenshot": "screenshots/teacher-07-logs.png"
+    },
+    {
+      "id": "FE-15",
+      "description": "助教进入工作台概览页面",
+      "role": "助教",
+      "page": "工作台概览",
+      "status": "PASS",
+      "screenshot": "screenshots/assistant-01-overview.png"
+    },
+    {
+      "id": "FE-16",
+      "description": "助教进入项目管理页面",
+      "role": "助教",
+      "page": "项目管理",
+      "status": "PASS",
+      "screenshot": "screenshots/assistant-02-projects.png"
+    },
+    {
+      "id": "FE-17",
+      "description": "助教进入团队与成员页面",
+      "role": "助教",
+      "page": "团队与成员",
+      "status": "PASS",
+      "screenshot": "screenshots/assistant-03-teams.png"
+    },
+    {
+      "id": "FE-18",
+      "description": "助教进入成果提交页面",
+      "role": "助教",
+      "page": "成果提交",
+      "status": "PASS",
+      "screenshot": "screenshots/assistant-04-submissions.png"
+    },
+    {
+      "id": "FE-19",
+      "description": "助教进入成绩管理页面",
+      "role": "助教",
+      "page": "成绩管理",
+      "status": "PASS",
+      "screenshot": "screenshots/assistant-05-grades.png"
+    },
+    {
+      "id": "FE-20",
+      "description": "助教进入操作记录页面",
+      "role": "助教",
+      "page": "操作记录",
+      "status": "PASS",
+      "screenshot": "screenshots/assistant-06-logs.png"
+    },
+    {
+      "id": "FE-21",
+      "description": "学生进入工作台概览页面",
+      "role": "学生",
+      "page": "工作台概览",
+      "status": "PASS",
+      "screenshot": "screenshots/student-01-overview.png"
+    },
+    {
+      "id": "FE-22",
+      "description": "学生进入项目管理页面",
+      "role": "学生",
+      "page": "项目管理",
+      "status": "PASS",
+      "screenshot": "screenshots/student-02-projects.png"
+    },
+    {
+      "id": "FE-23",
+      "description": "学生进入团队与成员页面",
+      "role": "学生",
+      "page": "团队与成员",
+      "status": "PASS",
+      "screenshot": "screenshots/student-03-teams.png"
+    },
+    {
+      "id": "FE-24",
+      "description": "学生进入成果提交页面",
+      "role": "学生",
+      "page": "成果提交",
+      "status": "PASS",
+      "screenshot": "screenshots/student-04-submissions.png"
+    },
+    {
+      "id": "FE-25",
+      "description": "学生进入匿名互评页面",
+      "role": "学生",
+      "page": "匿名互评",
+      "status": "PASS",
+      "screenshot": "screenshots/student-05-reviews.png"
+    },
+    {
+      "id": "FE-26",
+      "description": "学生进入成绩管理页面",
+      "role": "学生",
+      "page": "成绩管理",
+      "status": "PASS",
+      "screenshot": "screenshots/student-06-grades.png"
+    },
+    {
+      "id": "FE-27",
+      "description": "学生进入操作记录页面",
+      "role": "学生",
+      "page": "操作记录",
+      "status": "PASS",
+      "screenshot": "screenshots/student-07-logs.png"
+    }
+  ],
+  "errors": []
+}

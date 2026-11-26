@@ -1,0 +1,41 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.18, pytest-7.4.4, pluggy-1.7.0 -- D:\Anaconda\envs\course_platform_test\python.exe
+cachedir: .pytest_cache
+rootdir: D:\codex\2026-11-26\referenced-chatgpt-conversation-this-is-an\work\github_upload
+collecting ... collected 33 items
+
+backend/tests/test_app.py::PlatformTest::test_ac03_overdue_submission_is_rejected PASSED [  3%]
+backend/tests/test_app.py::PlatformTest::test_ac04_trims_extremes_and_rounds_to_one_decimal PASSED [  6%]
+backend/tests/test_app.py::PlatformTest::test_ac06_publish_snapshot_student_privacy_and_excel PASSED [  9%]
+backend/tests/test_app.py::PlatformTest::test_assigned_review_download_uses_anonymous_route_and_filename PASSED [ 12%]
+backend/tests/test_app.py::PlatformTest::test_assistant_cannot_write_teacher_score_or_see_final_score PASSED [ 15%]
+backend/tests/test_app.py::PlatformTest::test_authentication_required_and_login PASSED [ 18%]
+backend/tests/test_app.py::PlatformTest::test_grade_math PASSED          [ 21%]
+backend/tests/test_app.py::PlatformTest::test_notification_can_be_marked_read PASSED [ 24%]
+backend/tests/test_app.py::PlatformTest::test_other_team_file_is_not_downloadable PASSED [ 27%]
+backend/tests/test_app.py::PlatformTest::test_peer_review_below_two_flags_warning PASSED [ 30%]
+backend/tests/test_app.py::PlatformTest::test_review_requires_assignment PASSED [ 33%]
+backend/tests/test_app.py::PlatformTest::test_score_team_must_belong_to_project PASSED [ 36%]
+backend/tests/test_app.py::PlatformTest::test_small_team_cannot_submit PASSED [ 39%]
+backend/tests/test_app.py::PlatformTest::test_student_bootstrap_does_not_leak_other_teams PASSED [ 42%]
+backend/tests/test_app.py::PlatformTest::test_student_cannot_create_project PASSED [ 45%]
+backend/tests/test_app.py::PlatformTest::test_unknown_user_is_json_401 PASSED [ 48%]
+backend/tests/test_app.py::PlatformTest::test_unpublish_preserves_snapshot_history PASSED [ 51%]
+backend/tests/test_app.py::PlatformTest::test_unpublished_student_grade_is_hidden PASSED [ 54%]
+backend/tests/test_app.py::PlatformTest::test_v4_course_project_draft_and_publish PASSED [ 57%]
+backend/tests/test_app.py::PlatformTest::test_v4_grade_appeal_admin_resolution PASSED [ 60%]
+backend/tests/test_app.py::PlatformTest::test_v4_join_request_requires_leader_approval PASSED [ 63%]
+backend/tests/test_app.py::PlatformTest::test_v4_login_lockout_after_five_failures PASSED [ 66%]
+backend/tests/test_app.py::PlatformTest::test_v4_member_task_allows_designated_member_submission PASSED [ 69%]
+backend/tests/test_app.py::PlatformTest::test_v4_multidimensional_review_draft_and_alert PASSED [ 72%]
+backend/tests/test_app.py::PlatformTest::test_v4_process_return_and_iteration_score PASSED [ 75%]
+backend/tests/test_app.py::PlatformTest::test_weights_reject_invalid_range_and_sum PASSED [ 78%]
+tests/test_full_api.py::FullApiCoverageTest::test_create_team_leave_and_teacher_member_adjustment PASSED [ 81%]
+tests/test_full_api.py::FullApiCoverageTest::test_csv_export_after_grade_publication PASSED [ 84%]
+tests/test_full_api.py::FullApiCoverageTest::test_member_task_creation_and_status_update PASSED [ 87%]
+tests/test_full_api.py::FullApiCoverageTest::test_project_update_and_add_iteration PASSED [ 90%]
+tests/test_full_api.py::FullApiCoverageTest::test_public_endpoints_session_notifications_and_logout PASSED [ 93%]
+tests/test_full_api.py::FullApiCoverageTest::test_reminders_review_toggle_alert_resolution_and_scores PASSED [ 96%]
+tests/test_full_api.py::FullApiCoverageTest::test_submission_upload_download_versions_and_withdraw PASSED [100%]
+
+============================= 33 passed in 57.88s =============================

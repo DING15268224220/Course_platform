@@ -137,6 +137,21 @@ class PlatformTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("3", response.get_json()["message"])
 
+    def test_ac03_overdue_submission_is_rejected(self):
+        with platform_app.app.app_context():
+            db = platform_app.get_db()
+            db.execute("UPDATE projects SET review_open=0,grades_published=0 WHERE id=1")
+            db.execute("UPDATE iterations SET deadline='2000-01-01 00:00:00' WHERE id=1")
+            db.commit()
+        self.login("s1")
+        response = self.post(
+            "/api/submissions/1",
+            data={"file": (io.BytesIO(b"%PDF-1.7\n%%EOF"), "late.pdf")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("截止", response.get_json()["message"])
+
     def test_other_team_file_is_not_downloadable(self):
         other_file = Path(self.temp_dir.name) / "other.pdf"
         other_file.write_bytes(b"%PDF-1.7\n%%EOF")
