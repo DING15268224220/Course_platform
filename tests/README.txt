@@ -74,7 +74,7 @@ Course_platform V4 完整功能验收测试包
 
    tests\TEST_REPORT.md
 
-用于提交和打印的固定版报告为：
+固定版测试报告：
 
    tests\TEST_REPORT.pdf
 
@@ -92,22 +92,3 @@ Course_platform V4 完整功能验收测试包
 
 才表示完整验收通过。出现 FAIL 时先查看 screenshots\LAST_RUN.md 和
 screenshots\backend-tests.log。
-
-六、提交到 GitHub
-
-建议提交以下内容：
-
-   backend\tests\test_app.py
-   tests\test_script.py
-   tests\test_full_api.py
-   tests\README.txt
-   tests\TEST_REPORT.md
-   tests\TEST_REPORT.pdf
-   tests\screenshots\*.png
-   tests\screenshots\backend-tests.log
-   tests\screenshots\test-results.json
-   tests\screenshots\LAST_RUN.md
-
-请不要提交 Conda 环境、__pycache__、数据库、上传文件或浏览器安装目录。
-当前项目的 .gitignore 已排除 Python 缓存和运行时数据。教师克隆仓库后可按照
-第二、三节重新创建环境并复跑。

@@ -255,25 +255,3 @@
 #### FE-27 · 学生进入操作记录页面 · PASS
 
 ![学生进入操作记录页面](screenshots/student-07-logs.png)
-
-## 8. GitHub 复跑说明
-
-教师克隆仓库后，在项目根目录执行：
-
-```powershell
-conda create -n course_platform_test python=3.11 -y
-conda activate course_platform_test
-python -m pip install -r .\backend\requirements-dev.txt
-python -m pip install playwright
-python -m playwright install chromium
-python .\tests\test_script.py --mode all
-```
-
-脚本默认使用端口 5088 和临时数据库，结束后自动停止测试服务，不修改正式数据。测试结果固定写入 `tests/screenshots`，本报告会更新为最近一次完整结果。
-
-## 9. 方法合理性与边界
-
-- 后端采用接口级自动化，适合验证业务规则、权限、数据库状态和异常分支。
-- 前端采用真实 Chromium 验证四角色全部可见页面、页面渲染及运行时错误，并保留截图证据。
-- 当前截图证明页面和角色视图可正常呈现；复杂操作的正确性主要由后端接口测试证明，而不是仅凭截图判断。
-- 若评分标准明确要求“每个按钮都由浏览器点击完成”，应在此基础上继续增加端到端交互用例；本报告不会把接口测试冒充为全按钮 UI 测试。
